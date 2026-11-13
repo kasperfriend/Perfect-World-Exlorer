@@ -116,6 +116,9 @@ struct BucketKey {
     /// lives here rather than in `PipelineKey` — a distinct pipeline per
     /// priority would reload the shader for no gain.
     priority: i32,
+    /// `TileMode`: the sampler state is per slot (`A3DGFXRenderSlot.cpp:547-549`),
+    /// so a tile group binds the WRAP sampler and every other group CLAMPs.
+    tile: bool,
     pipeline: PipelineKey,
     texture: String,
 }
@@ -149,7 +152,8 @@ pub struct Draw {
     textures: HashMap<String, TextureEntry>,
     buckets: HashMap<BucketKey, Bucket>,
     uniform: wgpu::Buffer,
-    sampler: wgpu::Sampler,
+    sampler_repeat: wgpu::Sampler,
+    sampler_clamp: wgpu::Sampler,
     /// Stand-in used when an element's texture will not load.
     ///
     /// Dropping the bucket instead — which this used to do — means a single
@@ -240,17 +244,42 @@ impl Draw {
         ) {
             return Err("GFX effects require an encoded UNORM target".into());
         }
-        // `Repeat`, always. `TileMode` must NOT drive this: a waterfall has no
-        // flipbook (its sheet is one image, `TexRow`/`TexCol` 1) and its whole
-        // animation is the `TexSpeed` UV scroll, which walks past [0,1] for as
-        // long as the effect plays. Clamping that scroll freezes the sheet on its
-        // edge texel — the waterfall stops dead — and stretches those edge texels
-        // across the quad as vertical streaks. Clamping was tried and produced
-        // exactly that, so the wrap is required whether or not `TileMode` is 0.
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("native GFX effect sampler"),
+        // The sampler state is **per slot** in the client:
+        // `A3DGFXRenderSlotMan::PreRender` gives a `m_bTileMode` slot
+        // `A3DTADDR_WRAP` and every other slot `A3DTADDR_CLAMP`
+        // (A3DGFXRenderSlot.cpp:547-549). Both halves matter:
+        //
+        // * a tile must wrap — a waterfall has no flipbook (its sheet is one
+        //   image, `TexRow`/`TexCol` 1) and its whole animation is the
+        //   `TexSpeed` UV scroll, which walks past [0,1] for as long as the
+        //   effect plays. Clamping that scroll freezes the sheet on its edge
+        //   texel — the waterfall stops dead — and stretches those edge texels
+        //   across the quad as vertical streaks. Clamping was tried and produced
+        //   exactly that, so a tile keeps the wrap.
+        // * a non-tile card must clamp. The fractal strips put
+        //   `m_fTexWid * ratio + m_fTexU` along their length
+        //   (A3DGFXLightning.cpp:836) and the pair's two vertices share one u
+        //   (`:953-958`), so a widened strip corner crosses u = 1 and the wrap
+        //   sampler drew the opposite edge of the lightning sheet there — the
+        //   `u = 1.033` sheared corners logged on 血鲷封印台罩子闪电 and
+        //   闪电子.
+        //
+        // One Repeat sampler for every slot was both bugs at once: it was the
+        // only reason the tile scroll ran, and the only reason the lightning
+        // wrapped. The bucket key carries `tile` so each group binds its own.
+        let sampler_repeat = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("native GFX effect sampler (tile slot, WRAP)"),
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let sampler_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("native GFX effect sampler (non-tile slot, CLAMP)"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
@@ -367,7 +396,8 @@ impl Draw {
             textures: HashMap::new(),
             buckets: HashMap::new(),
             uniform,
-            sampler,
+            sampler_repeat,
+            sampler_clamp,
             fallback,
             order: Vec::new(),
             staging: Vec::new(),
@@ -454,6 +484,7 @@ impl Draw {
                     write_depth: quad.mesh.as_ref().is_some_and(|mesh| mesh.write_depth),
                 },
                 priority: quad.priority,
+                tile: quad.tile,
                 texture: quad.texture.clone(),
             };
             let position = match index.get(&key) {
@@ -576,7 +607,11 @@ impl Draw {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            resource: wgpu::BindingResource::Sampler(if key.tile {
+                                &self.sampler_repeat
+                            } else {
+                                &self.sampler_clamp
+                            }),
                         },
                     ],
                 });
@@ -794,6 +829,7 @@ mod tests {
             depth_test,
             layer,
             priority: 0,
+            tile: false,
             positions: [[-1., -1., 0.], [1., -1., 0.], [-1., 1., 0.], [1., 1., 0.]],
             uv: [[0., 0.], [1., 0.], [0., 1.], [1., 1.]],
             color,
@@ -816,6 +852,7 @@ mod tests {
             depth_test: false,
             layer: 0,
             priority: 0,
+            tile: true,
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color: [1.; 4],

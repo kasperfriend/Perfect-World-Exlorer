@@ -144,6 +144,15 @@ pub struct EffectQuad {
     /// high-priority flash landed in whatever order the texture bucket
     /// happened to produce.
     pub priority: i32,
+    /// The element's `TileMode`: the sampler state is **per slot** in the
+    /// client — `A3DGFXRenderSlotMan::PreRender` gives a `m_bTileMode` slot
+    /// `A3DTADDR_WRAP` and every other slot `A3DTADDR_CLAMP`
+    /// (A3DGFXRenderSlot.cpp:547-549). A tile's `TexSpeed` scroll must wrap or
+    /// the sheet freezes on its edge texel; a non-tile card whose UVs leave
+    /// [0,1] — the fractal strips put `m_fTexWid * ratio + m_fTexU` along their
+    /// length (A3DGFXLightning.cpp:836) — must clamp or the sampler wraps and
+    /// draws the opposite edge (the `u = 1.033` lightning corner).
+    pub tile: bool,
     /// World-space corners in the client's quad order: top-left, top-right,
     /// bottom-left, bottom-right.
     pub positions: [[f32; 3]; 4],
@@ -3235,29 +3244,33 @@ pub fn path_seed(path: &str) -> u32 {
 /// `TexRow`/`TexCol` greater than one select a cell every `TexInterval`
 /// milliseconds, row by row, which is how the retail smoke and fire sequences
 /// are stored.
-fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
+/// The live texture window `(u, v, w, h)` — the client's `m_fTexU`/`m_fTexV`/
+/// `m_fTexWid`/`m_fTexHei` at this clock — **before** the three endpoint-swap
+/// mirrors touch it. `flipbook_uv` wraps these four floats into card corners;
+/// the fractal strips use them directly (`A3DGFXLightning.cpp:835-836`), which
+/// is why the window is its own function.
+///
+/// `TileMode` is not a flipbook. `A3DGFXElement::CalcTexAnimation` takes a
+/// different branch for it:
+///
+///     if (m_bTileMode) { m_fTexWid = (float)m_nTexCol; m_fTexHei = (float)m_nTexRow; }
+///     else if (rows == 1 && cols == 1) m_bNeedCalcTex = false;
+///     else { m_fTexWid = 1.f / cols; m_fTexHei = 1.f / rows; }
+///
+/// and `A3DGFXElement::TexAnimation` scrolls instead of stepping:
+///
+///     if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
+///     else { ... m_nCurTexCol/m_nCurTexRow step every TexInterval ... }
+///
+/// so the two flags differ in what `TexRow`/`TexCol` mean: a flipbook cuts
+/// one cell out of a `TexCol x TexRow` grid and steps it every `TexInterval`,
+/// a tile keeps the whole `TexCol x TexRow` window and slides it at
+/// `TexSpeed`. Stepping cells as well is what made every waterfall sheet in
+/// `场景/新种族地图` jump between the frames of its atlas instead of running.
+fn tex_window(common: &Common, clock_ms: f32) -> (f32, f32, f32, f32) {
     let rows = common.tex_row.max(1);
     let cols = common.tex_col.max(1);
     let cells = rows * cols;
-    let mut uv = [[0., 0.], [1., 0.], [0., 1.], [1., 1.]];
-    // `TileMode` is not a flipbook. `A3DGFXElement::CalcTexAnimation` takes a
-    // different branch for it:
-    //
-    //     if (m_bTileMode) { m_fTexWid = (float)m_nTexCol; m_fTexHei = (float)m_nTexRow; }
-    //     else if (rows == 1 && cols == 1) m_bNeedCalcTex = false;
-    //     else { m_fTexWid = 1.f / cols; m_fTexHei = 1.f / rows; }
-    //
-    // and `A3DGFXElement::TexAnimation` scrolls instead of stepping:
-    //
-    //     if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
-    //     else { ... m_nCurTexCol/m_nCurTexRow step every TexInterval ... }
-    //
-    // so the two flags differ in what `TexRow`/`TexCol` mean: a flipbook cuts
-    // one cell out of a `TexCol x TexRow` grid and steps it every `TexInterval`,
-    // a tile keeps the whole `TexCol x TexRow` window and slides it at
-    // `TexSpeed`. The branch below is where that window is built; stepping
-    // cells as well is what made every waterfall sheet in `场景/新种族地图` jump
-    // between the frames of its atlas instead of running.
     let seconds = clock_ms / 1000.;
     if common.tile_mode != 0 {
         // `TileMode` keeps the full `TexCol x TexRow` window and slides it at
@@ -3289,20 +3302,14 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         // `m_fTexU` precisely because the per-frame fill has already put it in
         // the vertices. A one-sheet window at `TexSpeed / TexCol` — what this
         // branch briefly drew — stretched one copy of the sheet over the card
-        // and ran it at half the authored flow, which is the smeared "still
+        // and ran it at half the authored flow, which was the smeared "still
         // image" a waterfall was reported as.
-        let u = common.tex_speed[0] * seconds;
-        let v = common.tex_speed[1] * seconds;
-        let across = cols as f32;
-        let down = rows as f32;
-        uv = [
-            [u, v],
-            [u + across, v],
-            [u, v + down],
-            [u + across, v + down],
-        ];
-        apply_uv_flips(&mut uv, common);
-        return uv;
+        return (
+            common.tex_speed[0] * seconds,
+            common.tex_speed[1] * seconds,
+            cols as f32,
+            rows as f32,
+        );
     }
     if cells > 1 {
         // A missing `TexInterval` is 0, and 0 used to be substituted with
@@ -3340,12 +3347,21 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         };
         let row = index / cols;
         let col = index % cols;
-        let u0 = col as f32 / cols as f32;
-        let v0 = row as f32 / rows as f32;
-        let du = 1. / cols as f32;
-        let dv = 1. / rows as f32;
-        uv = [[u0, v0], [u0 + du, v0], [u0, v0 + dv], [u0 + du, v0 + dv]];
+        return (
+            col as f32 / cols as f32,
+            row as f32 / rows as f32,
+            1. / cols as f32,
+            1. / rows as f32,
+        );
     }
+    (0., 0., 1., 1.)
+}
+
+/// The four window corners in the client's card order, `UReverse`/`VReverse`/
+/// `UVExchg` applied.
+fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
+    let (u, v, w, h) = tex_window(common, clock_ms);
+    let mut uv = [[u, v], [u + w, v], [u, v + h], [u + w, v + h]];
     // `TexSpeed` is a `TileMode` value and nothing else. The client reads both
     // halves into `m_fUOffsetSpeed`/`m_fVOffsetSpeed` at version 34 and uses
     // them in exactly one branch of `A3DGFXElement::TexAnimation`:
@@ -3421,6 +3437,37 @@ fn depth_test(common: &Common, version: u32) -> bool {
     version < 76 || common.depth_test
 }
 
+/// The `Warp: 1` gate every card and strip class passes through.
+///
+/// The queue membership is element state, not decal state: `m_bAddedToWarpQueue`
+/// and `RemoveWarpEle(this)` live on the ELEMENT BASE (`A3DGFXElement.cpp:572-593`)
+/// and every class loads the key (`Warp: %d`, `:820-821`). The particle
+/// classes' fill sources are not in the client corpus, but their records speak
+/// plainly: `绿鬼火2.gfx` authors `Warp: 1` + `TexFile: normalmap\gas.dds` on
+/// its element-121 particle — the same pairing `绿色传送门.gfx` uses on its
+/// warp decal — and the live log caught those particles drawn as 14-unit
+/// additive `normalmap` cards where retail bends what is behind them. The
+/// corpus carries 839 `normalmap` elements at `Warp: 1` and 115 at `Warp: 0`,
+/// so the **key** is the gate and never the texture path: the 115 are ordinary
+/// cards whose art happens to live in a folder called `normalmap`.
+fn skip_warp(context: &ElementContext, stats: &mut Stats) -> bool {
+    if !context.common.warp {
+        return false;
+    }
+    stats.warp += 1;
+    crate::diag_keyed!(
+        EffectDecals,
+        at(context),
+        2000,
+        "{} id={} warp card: AddWarpEle, no normal card (A3DDecalEx.cpp:1332) \
+         texture={}",
+        context.root,
+        context.id,
+        context.common.texture
+    );
+    true
+}
+
 fn push_quad(
     out: &mut Vec<EffectQuad>,
     context: &ElementContext,
@@ -3465,6 +3512,7 @@ fn push_quad(
         depth_test: depth_test(context.common, context.version),
         layer: context.common.render_layer,
         priority: context.common.priority,
+        tile: context.common.tile_mode != 0,
         positions,
         uv,
         color,
@@ -3694,7 +3742,7 @@ fn emit_sprite(
     out: &mut Vec<EffectQuad>,
     drape: Option<GroundSampler<'_>>,
 ) {
-    // A `Warp: 1` decal is not a card. `A3DDecalEx::Update` (A3DDecalEx.cpp:1332-1336)
+    // A `Warp: 1` element is not a card. `A3DDecalEx::Update` (A3DDecalEx.cpp:1332-1336)
     // ends with
     //
     //     if (m_bWarp) { AfxGetGFXExMan()->AddWarpEle(this); return false; }
@@ -3710,18 +3758,7 @@ fn emit_sprite(
     // normal-pipeline card. It is counted rather than silently dropped, because a
     // root whose only visible part was a warp element now draws nothing and that
     // has to be readable from the status line.
-    if context.common.warp {
-        stats.warp += 1;
-        crate::diag_keyed!(
-            EffectDecals,
-            at(context),
-            2000,
-            "{} id={} warp card: AddWarpEle, no normal card (A3DDecalEx.cpp:1332) \
-             texture={}",
-            context.root,
-            context.id,
-            context.common.texture
-        );
+    if skip_warp(context, stats) {
         return;
     }
     let color = context.rgba();
@@ -4607,6 +4644,9 @@ fn emit_model(
             depth_test: depth_test(context.common, context.version),
             layer: context.common.render_layer,
             priority: context.common.priority,
+            // A model slot is not a `m_bTileMode` card slot; its texture stages
+            // sample with the default WRAP, so it keeps the wrapping sampler.
+            tile: true,
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color,
@@ -5158,6 +5198,11 @@ fn emit_particles(
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
 ) {
+    // A `Warp: 1` element is registered with the distortion pass, not drawn
+    // (`skip_warp`); the class makes no difference.
+    if skip_warp(context, stats) {
+        return;
+    }
     stats.emitters += 1;
     let Emitter {
         particles,
@@ -6153,6 +6198,11 @@ fn emit_ribbon(
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
 ) {
+    // A `Warp: 1` element is registered with the distortion pass, not drawn
+    // (`skip_warp`); the class makes no difference.
+    if skip_warp(context, stats) {
+        return;
+    }
     stats.ribbons += 1;
     crate::diag_keyed!(
         EffectTrails,
@@ -6573,6 +6623,11 @@ fn emit_fractal(
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
 ) {
+    // A `Warp: 1` element is registered with the distortion pass, not drawn
+    // (`skip_warp`); the class makes no difference.
+    if skip_warp(context, stats) {
+        return;
+    }
     stats.ribbons += 1;
     crate::diag_keyed!(
         EffectTrails,
@@ -6726,7 +6781,27 @@ fn emit_fractal(
             context.view.right
         }
     };
-    let uv = flipbook_uv(context.common, context.clock);
+    let (win_u, win_v, win_w, win_h) = tex_window(context.common, context.clock);
+    // The client's strip UV (`A3DGFXLightning.cpp:835-836, 928-959`): **u runs
+    // along the strip's length and v across its width**, the mirror of the card
+    // fills. Per vertex pair i —
+    //
+    //     float fRatio = (float)i / (nRenderCount - 1);    // length position
+    //     float fU = m_fTexWid * (m_bUReverse ? 1.0f - fRatio : fRatio) + m_fTexU;
+    //
+    // and the pair's two vertices share that u while v picks the side (`:928-936`):
+    //
+    //     if (m_bVReverse) { v1 = m_fTexV; v2 = m_fTexV + m_fTexHei; }
+    //     else             { v1 = m_fTexV + m_fTexHei; v2 = m_fTexV; }
+    //     // v1 fills vPos - vViewUp, v2 fills vPos + vViewUp
+    //
+    // with `m_bUVInterchange` swapping u and v per vertex (`:939-945`).
+    // `nRenderCount = m_nSegs * m_nLightNum + 1` (`InitBuf`, `:89`) and the
+    // pairs step the whole path, so pair i sits at t = i / (nRenderCount - 1) —
+    // the same `t0`/`t1` this loop gives each quad edge. Adding `t` to the
+    // across-width u instead — what this strip used to do — sheared every
+    // sheet: the logged 血鲷封印台罩子闪电 quad corners read
+    // (0,0),(1,0),(0.033,1),(1.033,1).
     let mut positions = [[0f32; 3]; 4];
     // Element 152 draws only the ring's live records, oldest first, each still
     // carrying its place in the authored strip; element 150 has no ring and draws
@@ -6748,8 +6823,18 @@ fn emit_fractal(
         let t1 = (index + 1) as f32 / segments as f32;
         let a = start.lerp(end, t0) + fractal.offsets[index];
         let b = start.lerp(end, t1) + fractal.offsets[index + 1];
-        let width0 = spec.width_at(t0).max(0.) * context.scale * 0.5;
-        let width1 = spec.width_at(t1).max(0.) * context.scale * 0.5;
+        // The width law (`A3DGFXLightning.cpp:810-811`, `UpdateVerts`):
+        //
+        //     float fScale = m_pGfx->GetActualScale() * kp.m_fScale;
+        //     float fWidthStart = m_fWidthStart * fScale;
+        //
+        // and the pair's vertices sit at `vPos -+ vViewUp` with
+        // `|vViewUp| = fWidthStart` (`:871-872`), so `Width` is a HALF-width:
+        // the strip spans `2 * Width * scale`. The extra `* 0.5` that used to
+        // stand here halved every lightning — the 0.04-0.07-unit
+        // 血鲷封印台罩子闪电 cards the live log reported.
+        let width0 = spec.width_at(t0).max(0.) * context.scale;
+        let width1 = spec.width_at(t1).max(0.) * context.scale;
         let alpha0 = spec.alpha_at(t0);
         let mut alpha1 = spec.alpha_at(t1);
         // A trail's tail disappears over its authored fade; a fractal ribbon
@@ -6773,12 +6858,29 @@ fn emit_fractal(
         for (slot, corner) in corners.into_iter().enumerate() {
             positions[slot] = corner.to_array();
         }
-        let strip = [
-            [uv[0][0] + t0, uv[0][1]],
-            [uv[1][0] + t0, uv[1][1]],
-            [uv[2][0] + t1, uv[2][1]],
-            [uv[3][0] + t1, uv[3][1]],
+        let u_at = |t: f32| win_u + win_w * if context.common.reverse_u { 1. - t } else { t };
+        let v_minus = if context.common.reverse_v {
+            win_v
+        } else {
+            win_v + win_h
+        };
+        let v_plus = if context.common.reverse_v {
+            win_v + win_h
+        } else {
+            win_v
+        };
+        // Corner 0/3 are the `-vViewUp` vertices, 1/2 the `+vViewUp` ones.
+        let mut strip = [
+            [u_at(t0), v_minus],
+            [u_at(t0), v_plus],
+            [u_at(t1), v_plus],
+            [u_at(t1), v_minus],
         ];
+        if context.common.exchange_uv {
+            for point in strip.iter_mut() {
+                point.swap(0, 1);
+            }
+        }
         push_quad(
             out,
             context,
@@ -6801,6 +6903,11 @@ fn emit_bolts(
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
 ) {
+    // A `Warp: 1` element is registered with the distortion pass, not drawn
+    // (`skip_warp`); the class makes no difference.
+    if skip_warp(context, stats) {
+        return;
+    }
     stats.ribbons += 1;
     let dt_ms = dt * 1000.;
     bolts.timer += dt_ms;
@@ -12856,6 +12963,40 @@ mod tests {
         assert_eq!(plain.stats().warp, 0);
     }
 
+    /// The gate is the key on **every** class, not just decals. The warp queue
+    /// is element state — `m_bAddedToWarpQueue` and `RemoveWarpEle(this)` live
+    /// on the element base (`A3DGFXElement.cpp:572-593`) and every class loads
+    /// `Warp: %d` (`:820-821`) — and the grammar pairs the key with a
+    /// `normalmap\` sheet on particles too: `绿鬼火2.gfx` authors
+    /// `Warp: 1` + `TexFile: normalmap\gas.dds` on its element-121 particle,
+    /// the same pairing `绿色传送门.gfx` uses on its warp decal. The live log
+    /// caught those particles drawn as 14-unit additive cards where retail
+    /// only bends the backdrop. The corpus carries 839 `normalmap` elements at
+    /// `Warp: 1` and 115 at `Warp: 0`, so the key is the gate and never the
+    /// texture path.
+    #[test]
+    fn a_warp_particle_is_distorted_not_drawn() {
+        let warp = (header37(1) + PARTICLE).replace("Warp: 0", "Warp: 1");
+        let mut player = build(&warp);
+        step(&mut player, 250.);
+        assert!(
+            player.quads().is_empty(),
+            "a warp particle never enters the render list: {:?}",
+            player.quads()
+        );
+        assert_eq!(
+            player.stats().warp,
+            1,
+            "and it is counted, not silently lost"
+        );
+        // `PARTICLE` emits one particle in its first 250 ms, so the control has
+        // something to show and the gate cannot pass for want of a card.
+        let mut plain = build(&(header37(1) + PARTICLE));
+        step(&mut plain, 250.);
+        assert_eq!(plain.quads().len(), 1);
+        assert_eq!(plain.stats().warp, 0);
+    }
+
     /// The retail archive, when this machine has it. The corpus tests below skip
     /// the way every other archive test does — through `crate::corpus`, so
     /// `PWE_CORPUS=require` turns the skip into a failure — and return `None` when
@@ -13269,6 +13410,111 @@ mod tests {
     /// `a_rot_from_view_shaft_follows_the_row_major_basis` pins in isolation and
     /// this pins against the shipped file.
     #[test]
+    /// One quad of `血鲷封印台罩子闪电`'s lightning strips, printed for the
+    /// live-log comparison, and the client's strip UV law asserted on every
+    /// quad of the root.
+    ///
+    /// `A3DGFXLightning::UpdateVerts` fills each vertex pair from
+    ///
+    ///     float fU = m_fTexWid * (m_bUReverse ? 1.0f - fRatio : fRatio) + m_fTexU;
+    ///     // one u for both vertices of the pair; v picks the width side
+    ///
+    /// (`A3DGFXLightning.cpp:835-836, 928-959`), so u runs along the strip's
+    /// length and v across its width — a shear where the *width* carries u is
+    /// the bug the live log caught on this very root: its quads read
+    /// (0,0),(1,0),(0.033,1),(1.033,1). The width law is the same source:
+    /// corners sit at `vPos -+ vViewUp` with `|vViewUp| = m_fWidthStart *
+    /// GetActualScale() * kp.m_fScale` (`:810-811, 871-872`), so the pair
+    /// separation is `2 * Width * scale` — the `Width` field is a half-width,
+    /// and halving it again drew the 0.04-0.07-unit cards the log reported.
+    #[test]
+    fn the_shipped_lightning_strips_run_u_along_their_length() {
+        let Some((mut file, entries)) = open_pack() else {
+            return;
+        };
+        let name = "gfx/场景/新种族地图/血鲷封印台罩子闪电.gfx";
+        let Some(root) = shipped_root_opt(&mut file, &entries, name) else {
+            eprintln!(
+                "::warning::{name} is not in this gfx.pck build; the strip UV law is skipped for it"
+            );
+            return;
+        };
+        // The authored half-widths, straight from the record: five fractal
+        // elements at Width 0.07, 0.05, 0.10, 0.10 and 0.12. Nothing here is
+        // invented — the expectations below are read from the same root the
+        // quads are.
+        let widths: Vec<f32> = root
+            .elements
+            .iter()
+            .filter_map(|element| match &element.spec {
+                Spec::Fractal(fractal) => Some(fractal.width_at(0.5)),
+                _ => None,
+            })
+            .collect();
+        assert!(!widths.is_empty(), "{name} has fractal strips");
+        let mut load_child = |path: &str| -> Result<gfx_file::Root, String> {
+            let joined = path.replace('\\', "/");
+            let joined = if joined.starts_with("gfx/") {
+                joined
+            } else {
+                format!("gfx/{joined}")
+            };
+            Ok(shipped_root(&mut file, &entries, &joined))
+        };
+        let mut player =
+            Player::new(root, 7, &mut load_child).unwrap_or_else(|error| panic!("{name}: {error}"));
+        for _ in 0..3 {
+            step(&mut player, 100.);
+        }
+        let quads: Vec<&EffectQuad> = player
+            .quads()
+            .iter()
+            .filter(|quad| {
+                let full = quad.texture.replace('\\', "/");
+                let base = full.rsplit('/').next().unwrap_or_default();
+                base.starts_with("lightning")
+            })
+            .collect();
+        assert!(!quads.is_empty(), "{name} draws its strips: {:?}", player.quads());
+        for quad in &quads {
+            let uv = quad.uv;
+            // Pair corners share u; the width sides share v. `UVExchg` swaps
+            // the two coordinates per vertex, so either orientation is the law.
+            let plain = uv[0][0] == uv[1][0]
+                && uv[2][0] == uv[3][0]
+                && uv[0][1] == uv[3][1]
+                && uv[1][1] == uv[2][1];
+            let exchanged = uv[0][1] == uv[1][1]
+                && uv[2][1] == uv[3][1]
+                && uv[0][0] == uv[3][0]
+                && uv[1][0] == uv[2][0];
+            assert!(
+                plain || exchanged,
+                "the strip UV runs u along the length and v across the width: {uv:?}"
+            );
+            // The pair separation is `2 * Width * scale` with this root's
+            // `DedaultScale: 1` and keypoint `Scale: 1`.
+            let pair = (Vec3::from_array(quad.positions[0]) - Vec3::from_array(quad.positions[1]))
+                .length();
+            assert!(
+                widths
+                    .iter()
+                    .any(|width| (pair - 2. * width).abs() < 1e-3),
+                "pair separation {pair} is one of the authored 2 * Width {:?}",
+                widths.iter().map(|w| 2. * w).collect::<Vec<_>>()
+            );
+        }
+        let first = quads[0];
+        let pair = (Vec3::from_array(first.positions[0]) - Vec3::from_array(first.positions[1]))
+            .length();
+        println!(
+            "blood-bream strip quad after the UV law: uv=[({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3})] pair_width={:.3} (the live log's before: uv=[(0,0),(1,0),(0.033,1),(1.033,1)] at half the width)",
+            first.uv[0][0], first.uv[0][1], first.uv[1][0], first.uv[1][1],
+            first.uv[2][0], first.uv[2][1], first.uv[3][0], first.uv[3][1],
+            pair
+        );
+    }
+
     fn the_shipped_forest_beams_are_axial_cards() {
         let Some((mut file, entries)) = open_pack() else {
             return;

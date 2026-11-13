@@ -1,1 +1,1 @@
-sweep 2026-11-13T17:19:41Z fmt: for-loop indent
+2026-11-13 live-log fix list: sampler wrap/clamp, fractal width+UV, element-generic warp gates, census records mode, lightning strip UV law test

@@ -121,5 +121,87 @@ def main(path):
         print(f'    {row}')
 
 
+def record_dump(path, ecwld, needle):
+    """The raw fields a render-size audit compares against the live log.
+
+    The log's sizes close as `2 * Height * DedaultScale * ecwld_scale` for every
+    card class (`A3DDecalEx::SetSize` takes half-extents,
+    A3DDecalEx.h:167-177, and `GetActualScale` is the root's `DedaultScale`
+    times the placement scale, A3DGFXEx.h:196-202), so a size that looks wrong
+    is only decidable against four raw values: the root's `DedaultScale`, the
+    element's `Width`/`Height`, and the ECWLD record's scale column (offset 4,
+    the same one `src/scene.rs` reads). This prints all four beside the raw
+    texture-mapping fields (`TexRow`/`TexCol`/`TileMode`/`TexSpeed`/mirrors)
+    and `MatchGrnd`, which is what decides a floating ring (`MatchGrnd: 0` is
+    authored, not a parse slip).
+
+    Usage: python3 tools/gfx-keypoint-census.py google_drive/gfx.pck \\
+               --records <name-substring> [--ecwld google_drive/world.ecwld]
+    """
+    import struct
+
+    _, entries = pck_lib.directory(path)
+    keep = {
+        'TexFile', 'TexRow', 'TexCol', 'TexInterval', 'TileMode', 'TexSpeed',
+        'UReverse', 'VReverse', 'UVExchg', 'MatchGrnd', 'GrndNormOnly',
+        'Width', 'Height', 'Scale', 'RotFromView', 'SrcBlend', 'DestBlend',
+    }
+    for name, off, usize, clen in entries:
+        if not name.lower().endswith('.gfx') or needle not in name:
+            continue
+        text = pck_lib.read_entry(path, (name, off, usize, clen)).decode('gbk', 'replace')
+        print(f'== {name}')
+        for line in text.splitlines():
+            key = line.split(':', 1)[0].strip()
+            if key in ('MOXTVersion', 'DedaultScale', 'PlaySpeed', 'DefaultAlpha'):
+                print(f'    {line.strip()}')
+        for eid, fields in blocks(text):
+            print(f'  -- element {eid}')
+            seen_speed = 0
+            for key, value in fields:
+                if key not in keep:
+                    continue
+                if key == 'TexSpeed':
+                    seen_speed += 1
+                    axis = 'UV'[seen_speed - 1] if seen_speed <= 2 else str(seen_speed)
+                    key = f'TexSpeed({axis})'
+                print(f'      {key}: {value}')
+    if not ecwld:
+        return
+    data = open(ecwld, 'rb').read()
+    print(f'== {ecwld} placements matching {needle!r}')
+    for at in range(0, len(data) - 64):
+        n = struct.unpack_from('<I', data, at + 60)[0]
+        if not (3 <= n <= 300) or at + 64 + n > len(data):
+            continue
+        raw = data[at + 64: at + 64 + n]
+        if b'\0' in raw:
+            continue
+        text = raw.decode('gbk', 'replace')
+        if any(ch < ' ' for ch in text):
+            continue
+        if needle not in text:
+            continue
+        if not (text.lower().endswith(('.gfx', '.ecm', '.ecmdl', '.bmd')) or '.gfx' in text.lower()):
+            continue
+        export_id, scale = struct.unpack_from('<If', data, at)
+        pos = struct.unpack_from('<3f', data, at + 8)
+        speed, valid_time, alpha = struct.unpack_from('<fif', data, at + 44)
+        print(
+            f'    id={export_id} scale={scale:.3f} '
+            f'pos=({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) '
+            f'speed={speed:.3f} vt={valid_time} alpha={alpha:.2f} {text}'
+        )
+
+
 if __name__ == '__main__':
-    main(sys.argv[1] if len(sys.argv) > 1 else 'google_drive/gfx.pck')
+    argv = sys.argv[1:]
+    if '--records' in argv:
+        at = argv.index('--records')
+        needle = argv[at + 1] if at + 1 < len(argv) else ''
+        ecwld = None
+        if '--ecwld' in argv:
+            ecwld = argv[argv.index('--ecwld') + 1]
+        record_dump(argv[0] if at > 0 else 'google_drive/gfx.pck', ecwld, needle)
+    else:
+        main(argv[0] if argv else 'google_drive/gfx.pck')

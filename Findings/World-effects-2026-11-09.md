@@ -5859,3 +5859,118 @@ therefore lives in per-frame game-layer UV or texture-stage transform work
 and `skin.rs:14-22` carry no scroll term to implement against. Finding the
 game-side mechanism is the next pass, and it is the one thing between the
 user and flowing falls.
+
+## 60. The live-log fix list: ten issues from the retail comparison (2026-11-13)
+
+The user compared the retail client against the viewer's live logs and filed
+ten issues. Eight were code changes; two resolved without one. Every change
+below is anchored to a client source line; where no client line was found,
+nothing changed.
+
+### 60.1 The sampler: a tile card wraps, any other card clamps
+
+`A3DGFXRenderSlot::Create` selects D3DSAMP_ADDRESSU/V = WRAP for
+`m_bTileMode` and CLAMP otherwise (`A3DGFXRenderSlot.cpp:547-549`). The
+viewers' one linear sampler always wrapped. The draw now carries the record's
+`TileMode` into the quad (`EffectQuad.tile`, `push_quad` maps
+`tile_mode != 0`), the bucket key sorts on it, and the two samplers —
+`sampler_repeat` / `sampler_clamp` — are selected per bucket. The model
+pipeline keeps wrap: `ATLAS`/`SKIN` textures tile by definition and are not
+gfx elements.
+
+### 60.2 The fractal width is `Width * scale`, not half of it
+
+`A3DGFXLightning::UpdateVerts` places the strip corners at
+`vPos -+ vViewUp` where `vViewUp = vViewDir * (m_fWidthStart *
+GetActualScale() * kp.m_fScale)` (`A3DGFXLightning.cpp:810-811, 864-872`):
+the card separation is `2 * Width * scale`, so `Width` is a half-width. The
+viewer halved it again and drew 0.04-0.07-unit cards where the log recorded
+0.09-0.14. The extra `* 0.5` is gone; the shipped-strip test asserts each
+pair separation is one of the root's authored `2 * Width` values.
+
+### 60.3 The strip UV runs u along the length and v across the width
+
+The same `UpdateVerts` fills one `fU` per *segment* and `fV` per *side*
+(`A3DGFXLightning.cpp:835-836, 928-959`; `m_bUVInterchange` swaps the two
+coordinates per vertex at `:939-945`). The viewer crossed them, shearing the
+0..1 window along the width — the live log's `(0,0),(1,0),(0.033,1),(1.033,1)`
+quads on `血鲷封印台罩子闪电`. `emit_fractal` now fills
+`u_at(t)` for the pair and `v_minus`/`v_plus` for the sides, applying
+`reverse_v` and the per-vertex `exchange_uv` swap from the client's ladder.
+`the_shipped_lightning_strips_run_u_along_their_length` prints one quad of
+that root's strips to the pack-test log (before: the sheared window above)
+and asserts the law — pair corners share u, sides share v, or the swapped
+form under `UVExchg` — on every quad.
+
+### 60.4 The warp queue is element-generic, so the gate is the authored flag
+
+`m_bWarp`/`m_bAddedToWarpQueue` live on `A3DGFXElement` itself
+(`A3DGFXElement.cpp:572-574`), `RemoveWarpEle` releases any element
+(`:592-593`), and every element record reads `Warp: %d` at load
+(`:820-821`): the warp queue accepts any element class. The gate on a
+`normalmap/` texture was therefore wrong (839 corpus cards author
+`Warp: 1` and 115 `Warp: 0` under `normalmap/`). The distortion gate is now
+the authored flag on every emit path the user listed — sprite, particle,
+ribbon, fractal and bolt — through one `skip_warp` helper that keeps the
+log line the live logs already key on. The particle gate is pinned by
+`a_warp_particle_is_distorted_not_drawn` beside the decal test.
+
+### 60.5 The oversize and float issues close on the record's own arithmetic
+
+Every logged size closes exactly against `2 * Width/Height * DedaultScale *
+ecwld scale`, with the placement scale from the same ECWLD column
+`src/scene.rs` reads (the `valid_time` field confirms the alignment):
+天煞光束 `654.33 x 26.17` = `2*50/2*2 * 1.0 * 6.543` (placement 19583),
+圣城之光 `79.66 x 79.66` = `2*2.25 * 1.0 * 17.701` (17422),
+树林光束 `108.38 x 5.42` = `2*10/2*0.5 * 0.7 * 7.741` (6024),
+烟1 basis `34.87` = `3.0 * 11.623` (17382). All four author
+`MatchGrnd: 0`, so the floating rings stand as authored. The census gained a
+record mode — `tools/gfx-keypoint-census.py gfx.pck --records <root>
+--ecwld world.ecwld` — that prints the four raw fields (`DedaultScale`,
+`Width`, `Height`, ECWLD scale) beside the raw texture-mapping fields and
+`MatchGrnd`, exactly as the audit asked. `gfx_decal`'s `MatchGrnd` parse
+reads the right field (the log's `match_ground=false` equals the record's
+`MatchGrnd: 0`).
+
+### 60.6 What resolved without a change
+
+* **树林光束's 0xd9111111 alpha.** The live line is `kp=0 clock=87ms` —
+  a young ramp at 87 ms, not the held `clock=12774ms` of the earlier
+  report. The 17-per-channel drop over ~0.1 s is the authored
+  `CtrlType: 105` color ramp (`A3DGFXCtrlColorChange::Process`,
+  `A3DGFXKeyPoint.cpp:616-645`) under the settled `color_delta` law.
+* **The Etherblade waterfall sheet.** `瀑布水花.gfx` is three `123` spray
+  cards (smork002, magicwhite, shuidi) and nothing else — no sheet element
+  exists in the root to activate. The curtain the user expects is the §49.5
+  scenery class, not a culling or parse failure.
+* **The ECWLD active column.** `valid_time` at record offset 48 is read
+  correctly (`src/scene.rs:100`); the placement `vt=2` bytes for the
+  waterfall and lightning subjects are 2 = always-active, matching the raw
+  records byte for byte.
+
+### 60.7 The culling audit: 76 roots, every one explained
+
+The `active=false` subjects of `EtherbladeWaterfall+Sunrays.log` (76 roots)
+resolve into three classes: day/night mode (night-only 灯红/好火焰/篝火/
+萤火虫 roots in a day session, vt=1; the day-only vt=0 roots draw), genuine
+distance (炊烟/花瓣雨/海底* at 200-800 units), and one boundary pair —
+`瀑布水花底` placements at the clifftop, just past the resident terrain
+window whose edge the fog cap hides (`terrain_cutoff::world_bounds`). The
+City-of-Raging-Tides subjects the user named never cull: `血鲷封印台罩子闪电`
+draws its 332 quads and no waterfall root of that zone appears in the
+culling channel at all. The skip line's triad (`active`, `elapsed<start`,
+throttled at 10 s) is `gfx_owner.rs:912-931`; the gates themselves are
+`apply_activation`'s `near && resident && visible` with the radius from
+`detail.radius * block_size` (`world_models_gpu.rs:655-689`,
+`gpu.rs:2609`).
+
+### 60.8 The ring texture is a straight stripe; the rings were the render
+
+`圆环光/circle032.dds` (128x128, DXT1, 8 mips) decodes to one soft bright
+stripe with dark caps — the centre row reads 0,47,47,0 and the centre column
+a monotone gradient: no rings in the content. The record's mapping is a plain
+1x1 window (`TexRow: 1, TexCol: 1`, no flips, no `UVExchg`). The "stacked
+rings" on the oversized beams were the pre-fix render: the sheared UV window
+under the always-wrap sampler across four stacked `RotFromView` cards. The
+sampler clamp (60.1) with the width and UV laws (60.2-60.3) render the
+authored straight stripe; the after-quad rides the pack-test log.

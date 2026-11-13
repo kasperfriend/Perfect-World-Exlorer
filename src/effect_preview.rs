@@ -1120,6 +1120,7 @@ mod tests {
             depth_test: false,
             layer: 0,
             priority: 0,
+            tile: true,
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color: [1.; 4],
