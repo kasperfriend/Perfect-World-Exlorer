@@ -6116,3 +6116,56 @@ material authors its `A3DFXTCCtrl` parameters (the `.ski`/shader side of the
 BMD material) and confirm the tick path from `EC_Ornament`/`A3DLitModelRender`.
 Until that data path is identified in source, no `gfx_player` change is made
 for the scenery curtain — per the standing rule.
+
+## 62. The 123/124 swap, the ground-height law, and the three field symptoms (2026-11-09)
+
+**The emitter ids were swapped.** `A3DGFXElement.h` defines
+`ID_ELE_TYPE_PARTICLE_ELLIPSOID 123` and `ID_ELE_TYPE_PARTICLE_CYLINDER 124`,
+and the source and the disassembly agree on what each class does:
+`A3DEllipsoidEmitter::GenSurface` samples the unit sphere and writes
+`m_vMoveDir = -v` with no `GenDirection` afterwards (exactly id 123's birth
+flow at `0x727ec2`, where the sampler writes node+0x44 itself), while
+`A3DCylinderEmitter::GenSurface` is `(cos, sin, z)` and its birth flow calls
+the direction slot (`0x729bc1`) — id 124. The viewer had the two classes'
+samplers, volume samplers and `IsAvgGen` walks on the wrong ids. All three now
+follow the enum. One consequence fell out of the same fetch: the volume
+ellipsoid is **not** born still — `A3DEllipsoidEmitter::GenTotal` ends with
+`GenDirection(pParticle->m_vMoveDir)` — so the frozen-volume branch is gone and
+`a_volume_ellipsoid_is_a_ball_and_a_volume_cylinder_is_a_disc` pins the shapes
+and the cone.
+
+**`MatchGrnd: 0` keeps the authored placement height.** The element's
+`GroundHeight` key is documented in the client as
+`ID_GFXOP_PARSYS_USE_GRND_HEIGHT` — "Use ground height for init the particle"
+(A3DGFXElement.h) — and the height frame (owner+0x13c) is what the particle
+corner builder selects. The viewer's frame chooser applied it to placed cards
+too, which reseated every `GroundHeight`-carrying beam onto the terrain: the
+sunrays sat on the ground and read oversized against the skyline. The chooser
+now requires `MatchGrnd` for any terrain frame (`aligned` for
+`MatchGrnd && (GroundHeight || near)`), and
+`ground_height_without_match_grnd_keeps_the_authored_height` pins it. The size
+identity itself — `2 * Width * DedaultScale * ecwld-placement-scale`, times the
+keypoint scale where the client reads it — was verified in `quad_corners`' four
+branches (each carries `* 2.`, `scale_x`/`scale_y` and, for the world-space
+branches, `basis_scale = placement.x_axis.length()`).
+
+**Where the three field symptoms stand after this commit.**
+
+* *Waterfalls*: the sheet's UV law (`TexAnimation`'s `m_fTexU += m_fUOffsetSpeed
+  * dt` under `TileMode`, the per-frame `A3DDecalEx.cpp:561-573` fill, WRAP for
+  tile slots and CLAMP otherwise per `PreRender`), the transparent missing-texture
+  fallback, and the flipbook-vs-tile split were already on this branch with
+  their pack tests (`the_shipped_waterfall_scrolls_and_hides_its_warp_veil`,
+  `the_shipped_waterfall_sheet_keeps_its_alpha`,
+  `a_waterfall_flipbook_never_scrolls_off_its_sheet`). The emitter swap changes
+  how the curtain's particle quads distribute across their shell — the one
+  proven defect in the path. The scenery curtain's own material scroll
+  (`A3DFXTCCtrl`) remains the research item of §61.9.
+* *Sunrays*: the ground reseat is fixed here; the size chain is verified. The
+  remaining question is retail comparison of individual records (`天煞光束` vs
+  `圣城之光`), which needs the retail frames the diagnostics exist for.
+* *Archosaur third beam*: the ring's `Sects: 0 -> 36` default and the `Pitch`
+  radii law (`fUppderRadius = m_fRadius - fDeltaRadius`) were already on this
+  branch (`emit_ring`), and the band is the client's cylinder strip with no
+  axial extrusion. The swap removes the other candidate: an id-123/124 emitter
+  drawn on the wrong shell scatters its quads into columns.

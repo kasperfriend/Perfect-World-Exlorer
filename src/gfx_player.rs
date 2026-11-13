@@ -1265,9 +1265,12 @@ struct GroundFrames {
     /// ground height. `0x6e5540`..`0x6e556e` forms that translation from pos.x,
     /// the raycast height at owner+0x1a0 and pos.z.
     aligned: Mat4,
-    /// owner+0x13c: the owner's own orientation at ground height, the copy of
-    /// the base matrix that `0x6e5592` re-transforms with the ground height.
-    height_only: Mat4,
+    /// owner+0x13c — the owner's own orientation at ground height — exists in
+    /// the client, but the selector only routes a placed element to it through
+    /// the `GroundHeight` key, and that key is documented as a particle-init
+    /// option (`ID_GFXOP_PARSYS_USE_GRND_HEIGHT`, "Use ground height for init
+    /// the particle"). `MatchGrnd: 0` keeps the authored placement height, so
+    /// no element frame reads it here; see `ground_parent`.
     /// The frame element+0x150 `GrndNormOnly` asks for: the ground *normal*
     /// without the snapped height, so the effect lies on the slope's plane but
     /// stays at its own altitude rather than sliding down to the surface. It is
@@ -2161,7 +2164,6 @@ impl Player {
         Some(GroundFrames {
             near_ground,
             aligned: Mat4::from_rotation_translation(aligned, at_ground) * scale,
-            height_only: Mat4::from_rotation_translation(own, at_ground) * scale,
             normal_only: Mat4::from_rotation_translation(aligned, origin) * scale,
         })
     }
@@ -2171,11 +2173,15 @@ impl Player {
     ///
     /// ```text
     /// no ground query                        -> the un-snapped frame
-    /// GroundHeight &&  MatchGrnd             -> owner+0xfc   aligned
-    /// GroundHeight && !MatchGrnd             -> owner+0x13c  height only
-    /// !GroundHeight && MatchGrnd && near     -> owner+0xfc   aligned
+    /// MatchGrnd && (GroundHeight || near)    -> owner+0xfc   aligned
     /// otherwise                              -> the un-snapped frame
     /// ```
+    ///
+    /// The client's owner also carries a height-only frame (owner+0x13c), but
+    /// the only key that routes an element to it is `GroundHeight`, which
+    /// A3DGFXElement.h documents as `ID_GFXOP_PARSYS_USE_GRND_HEIGHT` — "Use
+    /// ground height for init the particle". A placed card with `MatchGrnd: 0`
+    /// keeps its authored height; see `ground_parent`.
     ///
     /// Both bytes are reduced with `setne` at load time, so the number authored
     /// for `GroundHeight` does not matter, only whether it is nonzero. The
@@ -2194,14 +2200,18 @@ impl Player {
         if matches!(&element.spec, Spec::Sprite(s) if s.ground_normal_only) {
             return frames.normal_only;
         }
-        if element.common.ground_height != 0. {
-            return if element.common.match_ground {
-                frames.aligned
-            } else {
-                frames.height_only
-            };
+        // `MatchGrnd: 0` keeps the authored placement height. The element key
+        // the editor writes for the height frame is documented as a
+        // particle-init option — `ID_GFXOP_PARSYS_USE_GRND_HEIGHT`, "Use ground
+        // height for init the particle" (A3DGFXElement.h) — not a licence to
+        // move a placed card onto the terrain, and the shipped beams and shafts
+        // (天煞光束, 树林光束, 圣城之光) all author `MatchGrnd: 0` and appear at
+        // their ECWLD height in retail. Dropping a record onto the surface here
+        // is what parked the sunrays on the ground.
+        if !element.common.match_ground {
+            return base;
         }
-        if element.common.match_ground && frames.near_ground {
+        if element.common.ground_height != 0. || frames.near_ground {
             return frames.aligned;
         }
         base
@@ -5547,8 +5557,8 @@ fn curve_average_next(current: f32, sequential: bool, segments: u32, rng: &mut R
 /// The `IsAvgGen` walk's spawn position, or `None` when this class has no
 /// average walk and the ordinary samplers should decide.
 ///
-/// Ids 123 and 124 walk their shells through `cylinder_average` /
-/// `ellipsoid_average`. The curve emitter — the one class whose walk leaves the
+/// Id 123 (the ellipsoid) and id 124 (the cylinder) walk their shells through
+/// `ellipsoid_average` / `cylinder_average`. The curve emitter — the one class whose walk leaves the
 /// origin — identifies itself with `AvgGenSeg`, the field only its parser
 /// writes; it walks the generation keypoint's `Path` control at
 /// `A3DCurveEmitter::genNextStep`'s parameter and offsets a disc of `Radius`
@@ -5565,7 +5575,7 @@ fn average_sample(
 ) -> Option<Vec3> {
     let surface = particle.is_surface;
     match id {
-        123 => Some(cylinder_average(
+        124 => Some(cylinder_average(
             walk,
             particle.alpha_segments.unwrap_or(0),
             particle.beta_segments.unwrap_or(0),
@@ -5573,7 +5583,7 @@ fn average_sample(
             surface,
             rng,
         )),
-        124 => Some(ellipsoid_average(
+        123 => Some(ellipsoid_average(
             walk,
             particle.alpha_segments.unwrap_or(0),
             particle.beta_segments.unwrap_or(0),
@@ -5695,19 +5705,25 @@ fn spawn(
     } else if particle.is_surface {
         match context.id {
             123 => {
-                // `A3DCylinderEmitter::GenSurface`: a point of the unit circle in
-                // XY with a symmetric Z, scaled componentwise by the ranges —
-                // `(cos, sin, z)`, not a sphere point.
-                (cylinder_sample(rng) * half, None)
-            }
-            124 => {
+                // `ID_ELE_TYPE_PARTICLE_ELLIPSOID` is 123 (A3DGFXElement.h) and
                 // `A3DEllipsoidEmitter::GenSurface` samples the unit sphere and
                 // then sets `m_vMoveDir = -v`. The ellipsoid is the class that
-                // emits inward; the cylinder leaves the direction to
-                // `GenDirection`, which `A3DCylinderEmitter::InitParticle` calls
-                // for both of its branches.
+                // emits inward; its `InitParticle` never calls `GenDirection`
+                // on this branch, so the sampler is the last word on the
+                // direction — which is what the birth flow at `0x727ec2` shows
+                // too: id 123's sampler writes node+0x44 itself and nothing
+                // overwrites it.
                 let sample = surface_direction(rng);
                 (sample * half, Some(-sample))
+            }
+            124 => {
+                // `ID_ELE_TYPE_PARTICLE_CYLINDER` is 124, and
+                // `A3DCylinderEmitter::GenSurface` is a point of the unit
+                // circle in XY with a symmetric Z, scaled componentwise by the
+                // ranges — `(cos, sin, z)`, not a sphere point. Its birth flow
+                // (`0x729ba1`) calls the direction slot afterwards
+                // (`0x729bc1`), so the cone applies.
+                (cylinder_sample(rng) * half, None)
             }
             121 => (box_surface_sample(rng, half), None),
             120 => {
@@ -5719,17 +5735,18 @@ fn spawn(
             }
             _ => (volume_offset(particle, rng, basis_scale), None),
         }
-    } else if context.id == 123 {
+    } else if context.id == 124 {
         // `A3DCylinderEmitter::GenTotal` rejects until `x*x + y*y <= 1` and keeps
         // a symmetric Z, so its volume is a cylinder; the shared ball sampler
         // would spill particles outside the authored radius.
         (cylinder_volume_sample(rng) * half, None)
-    } else if context.id == 124 {
-        // `A3DEllipsoidEmitter::GenTotal` never calls `GenDirection`, and the base
-        // `InitParticle` (`A3DParticleEmitter.h:145-155`) leaves `m_vMoveDir`
-        // alone: a volume ellipsoid emits particles that stay where they are born.
-        (volume_offset(particle, rng, basis_scale), Some(Vec3::ZERO))
     } else {
+        // `A3DEllipsoidEmitter::GenTotal` rejects until `x*x + y*y + z*z <= 1`
+        // — exactly the shared ball sampler — and ends with
+        // `GenDirection(pParticle->m_vMoveDir)`, so the cone applies to a
+        // volume ellipsoid as it does to the other volume paths. Only the
+        // surface branch writes `m_vMoveDir` itself, and it writes the negated
+        // sample; a volume particle does not "stay where it is born".
         (volume_offset(particle, rng, basis_scale), None)
     };
     let position = match average {
@@ -9092,9 +9109,10 @@ mod tests {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        // Id 124 shares the ball volume sampler and is one of the three classes
-        // that folds the scalar into the basis; 123 replaces the ball with a disc.
-        context.id = 124;
+        // Id 123 is the ellipsoid: it shares the ball volume sampler and is one
+        // of the three classes that folds the scalar into the basis; 124, the
+        // cylinder, replaces the ball with a disc.
+        context.id = 123;
         // Keypoint `Scale` 2 under a root `PlaySpeed` of 3.
         context.emission_scale = 6.;
         let mut particle = Particle::default();
@@ -9182,7 +9200,7 @@ mod tests {
         }
     }
 
-    /// Id 123's surface sampler reads the same nine floats the volume sampler
+    /// Id 124's surface sampler reads the same nine floats the volume sampler
     /// does, so its cylinder is scaled by the same factor: the cross section
     /// moves out to `Scale * PlaySpeed * AreaSize * 0.5`.
     #[test]
@@ -9190,7 +9208,7 @@ mod tests {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 123;
+        context.id = 124;
         context.emission_scale = 4.;
         let mut particle = Particle::default();
         particle.is_surface = true;
@@ -9265,7 +9283,7 @@ mod tests {
                 for _ in 0..8 {
                     let offset = spawn(particle, None, &mut rng, &mut walk, &context).position;
                     assert!(offset.is_finite(), "{} spawned {offset}", file.display());
-                    if element.id == 123 {
+                    if element.id == 124 {
                         // `A3DCylinderEmitter` is a disc in XY plus a symmetric Z,
                         // so it reaches sqrt(2) half-extents and the ellipsoid
                         // inequality does not describe it: the cross-section sits
@@ -9324,7 +9342,7 @@ mod tests {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 124;
+        context.id = 123;
         let mut particle = Particle::default();
         particle.is_surface = true;
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
@@ -9348,11 +9366,11 @@ mod tests {
 
     /// The two surface classes differ in both the sample and the direction:
     ///
-    /// * `A3DCylinderEmitter::GenSurface` (123) samples `(cos, sin, z)` — a unit
-    ///   circle in XY with a symmetric Z — and `InitParticle` then calls
+    /// * `A3DCylinderEmitter::GenSurface` (id 124) samples `(cos, sin, z)` — a
+    ///   unit circle in XY with a symmetric Z — and `InitParticle` then calls
     ///   `GenDirection` for both branches, so the direction is the emitter axis
     ///   whatever the sample was.
-    /// * `A3DEllipsoidEmitter::GenSurface` (124) samples the unit sphere and
+    /// * `A3DEllipsoidEmitter::GenSurface` (id 123) samples the unit sphere and
     ///   writes `m_vMoveDir = -v`, and its `InitParticle` never calls
     ///   `GenDirection`, so the direction is exactly `-D`.
     #[test]
@@ -9365,14 +9383,14 @@ mod tests {
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
 
         let mut cylinder = spawn_context(&view, &common);
-        cylinder.id = 123;
+        cylinder.id = 124;
         let mut rng = Rng::new(43);
         let first = spawn_simple(&particle, &mut rng, &cylinder).direction;
         for _ in 0..500 {
             let state = spawn_simple(&particle, &mut rng, &cylinder);
             assert!(
                 (state.direction - first).length() < 1e-5,
-                "id 123 follows GenDirection, not its sample: {}",
+                "id 124 follows GenDirection, not its sample: {}",
                 state.direction
             );
             let radial = state.position / semi;
@@ -9384,7 +9402,7 @@ mod tests {
         }
 
         let mut ellipsoid = spawn_context(&view, &common);
-        ellipsoid.id = 124;
+        ellipsoid.id = 123;
         // A wide cone would bend every direction if `GenDirection` were consulted.
         particle.angle = std::f32::consts::FRAC_PI_2;
         let mut rng = Rng::new(43);
@@ -9400,12 +9418,13 @@ mod tests {
         }
     }
 
-    /// `A3DEllipsoidEmitter::GenTotal` never calls `GenDirection` and the base
-    /// `InitParticle` leaves `m_vMoveDir` alone, so a volume ellipsoid emits
-    /// particles with no self motion — while a volume cylinder still takes the
-    /// cone direction and stays inside its disc.
+    /// `A3DEllipsoidEmitter::GenTotal` rejects to the ball and then calls
+    /// `GenDirection(pParticle->m_vMoveDir)` at its end (A3DEllipsoidEmitter.cpp),
+    /// exactly as `A3DCylinderEmitter`'s birth flow does (`0x729bc1`): both
+    /// volume paths take the cone. Only the ellipsoid's *surface* branch writes
+    /// its own direction, and it writes the negated sample.
     #[test]
-    fn a_volume_ellipsoid_is_born_still_and_a_volume_cylinder_is_not() {
+    fn a_volume_ellipsoid_is_a_ball_and_a_volume_cylinder_is_a_disc() {
         let view = view();
         let common = Common::default();
         let semi = Vec3::new(1., 0.5, 0.25);
@@ -9413,15 +9432,29 @@ mod tests {
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
 
         let mut ellipsoid = spawn_context(&view, &common);
-        ellipsoid.id = 124;
+        ellipsoid.id = 123;
         let mut rng = Rng::new(59);
+        let first = spawn_simple(&particle, &mut rng, &ellipsoid).direction;
+        assert_ne!(first, Vec3::ZERO, "123 volume takes the cone direction");
+        let mut reach = Vec3::ZERO;
         for _ in 0..200 {
             let state = spawn_simple(&particle, &mut rng, &ellipsoid);
-            assert_eq!(state.direction, Vec3::ZERO, "124 volume has no direction");
+            assert!((state.direction - first).length() < 1e-5);
+            let radial = state.position / semi;
+            assert!(
+                radial.length_squared() <= 1. + 1e-5,
+                "the ellipsoid volume is a ball, not a disc: {radial}"
+            );
+            reach = reach.max(radial.abs());
         }
+        // The ball fills its volume: samples reach beyond any single plane.
+        assert!(
+            reach.x > 0.6 && reach.y > 0.6 && reach.z > 0.6,
+            "the ball barely filled: {reach}"
+        );
 
         let mut cylinder = spawn_context(&view, &common);
-        cylinder.id = 123;
+        cylinder.id = 124;
         let mut rng = Rng::new(59);
         let first = spawn_simple(&particle, &mut rng, &cylinder).direction;
         for _ in 0..200 {
@@ -9641,17 +9674,17 @@ mod tests {
         assert_eq!(p, Vec3::ZERO);
     }
 
-    /// `A3DCylinderEmitter::GenSurface` (id 123) is the lateral surface of a
+    /// `A3DCylinderEmitter::GenSurface` (id 124) is the lateral surface of a
     /// cylinder, not an ellipsoid: `q` turns `_unit_x` about `_unit_z` by a full
     /// turn and `z` is an independent symmetric draw, so the cross-section sits
     /// exactly on the ellipse while the height covers the whole extent — which no
     /// sphere sample does.
     #[test]
-    fn id_123_surface_emission_is_a_cylinder() {
+    fn id_124_surface_emission_is_a_cylinder() {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 123;
+        context.id = 124;
         let mut particle = Particle::default();
         particle.is_surface = true;
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
@@ -10220,7 +10253,7 @@ mod tests {
                     continue;
                 }
                 // When `IsAvgGen` is set the client's `GenAverage` runs with the
-                // surface flag as its own parameter (A3DCylinderEmitter.cpp),
+                // surface flag as its own parameter (A3DEllipsoidEmitter.cpp),
                 // subsuming `GenSurface` and its inward direction write. Those
                 // records walk the shell instead and are held to the walk's own
                 // tests above.
@@ -12376,15 +12409,16 @@ mod tests {
         );
     }
 
-    /// `GroundHeight` without `MatchGrnd` takes the height and leaves the
-    /// orientation alone: `0x6fa7e3` returns owner+0x13c, the copy of the base
-    /// matrix `0x6e5592` re-transforms with the raycast height, and the
-    /// orientation selector `0x6fa810` returns the un-aligned owner+0x1a4
-    /// because `MatchGrnd` is clear. Every corner is therefore the corner the
-    /// element would have had with no ground at all, moved down by the
-    /// difference in height.
+    /// `GroundHeight` without `MatchGrnd` does not move a placed element. The
+    /// key is documented as a particle-init option — `ID_GFXOP_PARSYS_USE_GRND_
+    /// HEIGHT`, "Use ground height for init the particle" (A3DGFXElement.h) —
+    /// and the frame selector's height row (`0x6fa7e3`, owner+0x13c) is what the
+    /// *particle* corner builder (`0x71eb3b`) asks for. The shipped beams and
+    /// shafts author `MatchGrnd: 0` and appear at their authored ECWLD height in
+    /// retail, so a card keeps the frame it was authored with and the terrain
+    /// never reseats it.
     #[test]
-    fn ground_height_alone_moves_the_element_without_tilting_it() {
+    fn ground_height_without_match_grnd_keeps_the_authored_height() {
         let source = header79(1) + &ground_sprite(false, true);
         let transform = Mat4::from_translation(Vec3::new(3., 7., -2.));
         let mut without = build(&source);
@@ -12401,17 +12435,11 @@ mod tests {
         let expected = without.quads()[0].positions;
         let got = with.quads()[0].positions;
         for index in 0..4 {
-            let want = Vec3::from_array(expected[index]) + Vec3::new(0., 2. - 7., 0.);
             assert!(
-                (Vec3::from_array(got[index]) - want).length() < 1e-4,
-                "corner {index} is a pure translation of the un-snapped one: {got:?} against {want}"
+                (Vec3::from_array(got[index]) - Vec3::from_array(expected[index])).length() < 1e-4,
+                "corner {index} keeps its authored height: {got:?} against {expected:?}"
             );
         }
-        let centre = quad_centre(&with.quads()[0]);
-        assert!(
-            (centre.y - 2.).abs() < 1e-4,
-            "the element sits at the ground height, got {centre}"
-        );
     }
 
     /// `MatchGrnd` on its own only applies within 0.2 units of the ground:
