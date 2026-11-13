@@ -3870,7 +3870,9 @@ what the `.ecwld` says, and retail multiplies them the same way.
 `SetAlphaTransition(max_alpha * fAlpha)` with `max_alpha` forced to `1.0f`
 (`EC_ManOrnament.cpp:957-966`). `树林光束.gfx` writes `DefaultAlpha: 0.5` — the forest
 shafts are half-alpha additive cards, and the rainbow writes `PlaySpeed: 0.5`, which is the
-file's default that `SetPlaySpeed(Data.fSpeed)` overrides per placement.
+file's half and the placement's `fSpeed` is the other half of the product
+(`CalcActualSpeed`, sections 57.4 and 57.9; this section first said the
+placement *overrides* the file, which is the bug `e9f8b7d` removed).
 
 ### 51.5 The one structural thing the client does that the viewer does not: it draws far less
 
@@ -4893,8 +4895,8 @@ that differ at all / that differ visibly):
 | `天煞光束` | 0.5 % / 0.0 % | 2.3 % / 0.0 % |
 
 `天煞光束`'s 0.0 % is right, not frozen: its four elements carry one keypoint
-each, so there is nothing to move, and its motion (a slow width/alpha shimmer)
-was never authored. `圣城之光`'s 1.7 % is its 28 two-key shafts pulsing against
+each, so the file authors nothing that can move — a still frame of it is the
+correct frame. `圣城之光`'s 1.7 % is its 28 two-key shafts pulsing against
 404-unit rings that do not. The two roots the reports call static — the waterfall
 and the wraithgate flames — change a fifth and a seventh of the frame.
 
