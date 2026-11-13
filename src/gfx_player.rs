@@ -4445,9 +4445,8 @@ fn emit_model(
                 // and its offsets are local decoration - and it is the price of
                 // leaving `placement` alone for the children, ground queries and
                 // spans that read it.
-                let position = matrix.transform_point3(
-                    Vec3::from_array(vertex.position) * context.scale,
-                );
+                let position =
+                    matrix.transform_point3(Vec3::from_array(vertex.position) * context.scale);
                 // The placement carries the keypoint scale, which is uniform, so
                 // transforming the normal as a vector and renormalising is the
                 // client's `matScale * tran * parent` applied to it. A zero
