@@ -8295,8 +8295,13 @@ mod tests {
         step(&mut player, 80.);
         assert_eq!(player.quads().len(), 1, "second pass is visible");
 
-        step(&mut player, 100.);
-        assert!(player.finished(), "both passes are over at 300 ms");
+        // 100 ms of play, 50 ms of gap, 100 ms of play: 250 ms, because the delay
+        // that would follow the *last* play is never spent (`Resume(true)` sets
+        // `m_bInDelay` and the next `IsFinished` returns before it is read).
+        step(&mut player, 40.);
+        assert!(!player.finished(), "240 ms is still inside the second pass");
+        step(&mut player, 10.);
+        assert!(player.finished(), "both passes are over at 250 ms");
         assert!(player.quads().is_empty());
 
         // A negative repeat count never finishes.
@@ -10845,20 +10850,43 @@ mod tests {
         );
         // `Fill_Verts_2D` writes `fWidth = m_fWidth1/2 * kp.m_fScale * fScale`, so
         // a 0.25 x 0.5 half-extent card at keypoint scale 2 under `DedaultScale: 2`
-        // is 2 wide and 4 tall in world units — the same either side of `ZOffset`.
+        // is 2 wide and 4 tall in world units, and stays that size in the file:
+        // `ZOffset` is not part of the extents.
+        let depth = |p: Vec3| (p - camera.position).dot(camera.forward);
+        let centre = (0..4).fold(Vec3::ZERO, |sum, i| sum + corner(i)) / 4.;
+        // Moving 4 of the 10 units closer would make a card that kept its world
+        // extents `10/6` times larger on screen. A scale about the eye keeps each
+        // corner on its own ray instead, so the world extents shrink by exactly
+        // the depth's factor and the *projected* size — world extent over depth —
+        // does not move. That ratio is the assertion that matters.
+        let authored_width = 2.;
+        let authored_height = 4.;
+        let pushed = 10. - 4.;
         assert!(
-            (width.length() - 2.).abs() < 1e-4 && (height.length() - 4.).abs() < 1e-4,
-            "screen extents keep the world size: {} {}",
+            (width.length() / depth(centre) - authored_width / 10.).abs() < 1e-4,
+            "the projected width is unchanged: {} / {} vs {authored_width} / 10",
             width.length(),
-            height.length()
+            depth(centre)
+        );
+        assert!(
+            (height.length() / depth(centre) - authored_height / 10.).abs() < 1e-4,
+            "the projected height is unchanged: {} / {} vs {authored_height} / 10",
+            height.length(),
+            depth(centre)
+        );
+        // And the world extents did shrink, by the depth's own factor — which is
+        // what the old corner translation did *not* do: it kept 2 x 4 at depth 6
+        // and drew the card 10/6 larger.
+        assert!(
+            (width.length() - authored_width * pushed / 10.).abs() < 1e-3,
+            "the world width shrinks with the depth: {} vs {}",
+            width.length(),
+            authored_width * pushed / 10.
         );
         // The authored centre is ten units from the eye; `ZOffset: 2` at
         // `GetActualScale()` 4 (the root's `DedaultScale: 2` times the placement's
         // 1) is a push of 4, so the pushed centre's depth — the one `vCenter.z`
         // every corner takes — is ten minus four.
-        let depth = |p: Vec3| (p - camera.position).dot(camera.forward);
-        let centre = (0..4).fold(Vec3::ZERO, |sum, i| sum + corner(i)) / 4.;
-        let pushed = 10. - 4.;
         for index in 0..4 {
             assert!(
                 (depth(corner(index)) - pushed).abs() < 1e-3,
@@ -10869,24 +10897,6 @@ mod tests {
         assert!(
             (depth(centre) - pushed).abs() < 1e-3,
             "and so does the centre: {centre:?}"
-        );
-        // Moving 4 of the 10 units closer, a card that kept its world size would be
-        // `10/6` times larger on screen. A scale about the eye keeps every corner
-        // on its own ray instead, which is what holds the projected size fixed —
-        // so the world extents shrink by exactly that factor and the screen
-        // extents do not move.
-        let projected_width = 2. * 10. / 6.;
-        assert!(
-            (width.length() - projected_width).abs() < 1e-3,
-            "the world width scales with the depth, so the screen width does not: \
-             {} vs {projected_width}",
-            width.length()
-        );
-        let projected_height = 4. * 10. / 6.;
-        assert!(
-            (height.length() - projected_height).abs() < 1e-3,
-            "and so does the world height: {} vs {projected_height}",
-            height.length()
         );
     }
 
@@ -10934,11 +10944,11 @@ mod tests {
                 "corner {index} stayed on its ray"
             );
         }
-        // Two units of a five-unit depth: the card is closer but not resized,
-        // so its on-screen width at that distance is `2 * 5/3`, not `2`.
+        // Two units of a five-unit depth: the card is 3/5 as far away, so a card
+        // that keeps its projected size is 3/5 as wide in world units.
         let width = (Vec3::from_array(moved[1]) - Vec3::from_array(moved[0])).length();
         assert!(
-            (width - 2. * 5. / 3.).abs() < 1e-4,
+            (width - 2. * 3. / 5.).abs() < 1e-4,
             "the world width shrinks with the depth, so the screen width does not: {width}"
         );
         // A zero push is the identity, and a push that would reach the eye is
