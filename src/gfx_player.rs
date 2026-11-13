@@ -4003,11 +4003,7 @@ fn emit_sprite(
 /// values move the card *towards* the eye, negative ones away from it. A negative
 /// push is honoured — `vCenter.z` simply lands further away, and the eye-ray
 /// construction is unchanged — as long as the card stays in front of the eye.
-fn push_toward_eye(
-    positions: [[f32; 3]; 4],
-    view: &View,
-    distance: f32,
-) -> [[f32; 3]; 4] {
+fn push_toward_eye(positions: [[f32; 3]; 4], view: &View, distance: f32) -> [[f32; 3]; 4] {
     if !distance.is_finite() || distance == 0. {
         return positions;
     }
