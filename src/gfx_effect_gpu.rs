@@ -552,6 +552,7 @@ impl Draw {
                 .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
                 .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
                 .then_with(|| a.texture.cmp(&b.texture))
+                .then_with(|| a.tile.cmp(&b.tile))
         });
 
         if self.buckets.len() + groups.len() > BUCKET_CACHE_LIMIT {
@@ -1488,18 +1489,21 @@ mod tests {
                 priority: 0,
                 pipeline: pipeline(5, 2, false),
                 texture: "b".into(),
+                tile: false,
             },
             BucketKey {
                 layer: 0,
                 priority: 0,
                 pipeline: pipeline(5, 6, true),
                 texture: "a".into(),
+                tile: false,
             },
             BucketKey {
                 layer: 0,
                 priority: 0,
                 pipeline: pipeline(5, 2, false),
                 texture: "a".into(),
+                tile: false,
             },
         ];
         sorted.sort_by(|a, b| {
@@ -1520,6 +1524,7 @@ mod tests {
                 .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
                 .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
                 .then_with(|| a.texture.cmp(&b.texture))
+                .then_with(|| a.tile.cmp(&b.tile))
         });
         assert!(sorted[0].pipeline.depth_test);
         assert_eq!(sorted[1].pipeline.destination, 2);
@@ -1546,18 +1551,21 @@ mod tests {
                 priority: 4,
                 pipeline: pipeline(5, 2, true),
                 texture: "flash".into(),
+                tile: false,
             },
             BucketKey {
                 layer: 0,
                 priority: 1,
                 pipeline: pipeline(5, 2, true),
                 texture: "dust".into(),
+                tile: false,
             },
             BucketKey {
                 layer: 1,
                 priority: 1,
                 pipeline: pipeline(5, 2, true),
                 texture: "later-layer".into(),
+                tile: false,
             },
         ];
         sorted.sort_by(|a, b| {
@@ -1573,6 +1581,7 @@ mod tests {
                 .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
                 .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
                 .then_with(|| a.texture.cmp(&b.texture))
+                .then_with(|| a.tile.cmp(&b.tile))
         });
         assert_eq!(
             sorted[0].texture, "dust",
@@ -1609,18 +1618,21 @@ mod tests {
                 priority: 1,
                 pipeline: sheet,
                 texture: "sheet".into(),
+                tile: false,
             },
             BucketKey {
                 layer: 0,
                 priority: 4,
                 pipeline: model,
                 texture: "model".into(),
+                tile: false,
             },
             BucketKey {
                 layer: 1,
                 priority: 1,
                 pipeline: model,
                 texture: "later-layer-model".into(),
+                tile: false,
             },
         ];
         sorted.sort_by(|a, b| {
@@ -1632,6 +1644,7 @@ mod tests {
                 .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
                 .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
                 .then_with(|| a.texture.cmp(&b.texture))
+                .then_with(|| a.tile.cmp(&b.tile))
         });
         assert_eq!(
             sorted[0].texture, "model",
