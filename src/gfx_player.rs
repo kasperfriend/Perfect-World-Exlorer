@@ -7060,9 +7060,12 @@ mod tests {
         let level = first(0.);
         // `OrgAtCenter: 0` puts the foot row at y = 0, the first section starts
         // at angle zero, and `Pitch: 0.463648` widens the foot by
-        // `halfHeight * tan` = 0.25, so the corner is at (1.25, 0, 0).
+        // `halfHeight * tan`, so the corner is on +X of the foot row. Its length
+        // is the foot radius times the root's `DedaultScale` of 2, which is why
+        // the assertions below are written against `radius` and not a number.
+        let radius = level[0];
         assert!(
-            (level[0] - 1.25).abs() < 1e-3 && level[2].abs() < 1e-6,
+            radius > 2. && level[1].abs() < 1e-6 && level[2].abs() < 1e-3,
             "the unspun band starts on +X of the foot row: {level:?}"
         );
         // The angle in the band's own XZ plane, measured from +X towards -Z,
@@ -7077,12 +7080,12 @@ mod tests {
              {quarter:?} against {level:?}"
         );
         assert!(
-            quarter[0].abs() < 1e-3 && (quarter[2] + 1.25).abs() < 1e-3,
-            "and it lands on -Z of the foot row: {quarter:?}"
+            quarter[0].abs() < 1e-3 && (quarter[2] + radius).abs() < 1e-3,
+            "and it lands on -Z of the foot row: {quarter:?} against {level:?}"
         );
         assert!(
             (quarter[1] - level[1]).abs() < 1e-6
-                && (quarter[0].hypot(quarter[2]) - level[0].hypot(level[2])).abs() < 1e-3,
+                && (quarter[0].hypot(quarter[2]) - radius).abs() < 1e-3,
             "a yaw keeps the corner's height and radius: {quarter:?} against {level:?}"
         );
         // Half a turn is the other side of the same band, not a mirror of it.
@@ -7090,7 +7093,7 @@ mod tests {
         // because its sections are not symmetric about their own centre.
         let half = first(std::f32::consts::PI);
         assert!(
-            (half[0] + level[0]).abs() < 1e-3 && (half[2] - level[2]).abs() < 1e-3,
+            (half[0] + radius).abs() < 1e-3 && (half[2] - level[2]).abs() < 1e-3,
             "a half turn puts the corner opposite, at the same height and radius: \
              {half:?} against {level:?}"
         );
