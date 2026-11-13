@@ -1315,10 +1315,25 @@ impl Player {
         self.play_speed_override = None;
     }
 
-    /// The rate the root clock advances at: the placement's `fSpeed` when one was
-    /// set, the file's `PlaySpeed` otherwise (`A3DGFXEx::SetPlaySpeed`).
+    /// The rate the root clock advances at.
+    ///
+    /// `A3DGFXEx::CalcActualSpeed` is
+    ///
+    ///     m_fActualSpeed = m_fDefPlaySpeed * m_fPlaySpeed;
+    ///
+    /// — the file's own `PlaySpeed` (`m_fDefPlaySpeed`, loaded from the header at
+    /// `A3DGFXEx.cpp:621`) times the rate the placement set (`m_fPlaySpeed`).
+    /// `CECOrnamentMan::LoadGFXFromFile` always sets the second one from the
+    /// world record's `fSpeed`, so a scene effect advances at the product.
+    ///
+    /// Taking the placement's speed as a *replacement* is wrong whenever the
+    /// asset does not author 1: `场景/天煞光束.gfx` writes `PlaySpeed: 0.4` and its
+    /// placements write `fSpeed: 1`, so the client runs it at 0.4 and this
+    /// function used to run it at 1 — the one root of the six rendered in the
+    /// 13 November preview whose clock did not match (`player clock 792 ms` for
+    /// an `asked 792 ms` shot, where 317 was correct).
     pub fn play_speed(&self) -> f32 {
-        self.play_speed_override.unwrap_or(self.root.play_speed)
+        self.root.play_speed * self.play_speed_override.unwrap_or(1.0)
     }
 
     /// The `PlaySpeed` the file authors, whatever a placement did to it. Printing
@@ -10272,6 +10287,48 @@ mod tests {
     /// stretch per segment is constant. The count was `(1 / length) * coeff`,
     /// which is inverted, so a beam longer than the coefficient collapsed to the
     /// one-segment floor and drew as a single billboard across the whole span.
+
+    /// `CalcActualSpeed` multiplies the file's `PlaySpeed` by the placement's
+    /// `fSpeed`; neither replaces the other. A root that authors 0.4 and is
+    /// placed at 1 runs at 0.4, and a root that authors 1 and is placed at 0.4
+    /// runs at 0.4 as well.
+    #[test]
+    fn a_root_rate_is_the_files_play_speed_times_the_placements_speed() {
+        fn root_rate(file: f32) -> String {
+            format!(
+                "MOXTVersion: 37\r\nDedaultScale: 1\r\nPlaySpeed: {file}\r\nDefaultAlpha: 1\r\n\
+                 Raytrace: 0\r\nFadeByDist: 0\r\nFadeStart: 0\r\nFadeEnd: 0\r\n\
+                 Vec: 0, 0, 0\r\nVec: 1, 1, 1\r\nShakeCam: 0\r\nGFXELEMENTCOUNT: 1\r\n\
+                 GFXELEMENTID: 100\r\nName: inner\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+                 RepeatCount: -1\r\nRepeatDelay: 0\r\n\
+                 Width: 1\r\nHeight: 1\r\nRotFromView: 0\r\nGrndNormOnly: 0\r\n\
+                 StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+                 Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
+                 Rad_2D: 0\r\nCtrlMethodCount: 0\r\n"
+            )
+        }
+        for (file, placement, want) in [
+            (0.4f32, None, 0.4f32),
+            (0.4, Some(1.0), 0.4),
+            (1.0, Some(0.4), 0.4),
+            (0.5, Some(2.0), 1.0),
+            (1.0, None, 1.0),
+        ] {
+            let source = root_rate(file);
+            let mut player = Player::new(gfx_file::parse(&source).unwrap(), 7, &mut |_| {
+                Err("no child".to_string())
+            })
+            .unwrap();
+            if let Some(speed) = placement {
+                player.set_play_speed(speed);
+            }
+            assert!(
+                (player.play_speed() - want).abs() < 1e-6,
+                "file {file} placement {placement:?}: rate {} not {want}",
+                player.play_speed()
+            );
+        }
+    }
 
     /// A child root's clock must run at the product of the element's own
     /// `PlaySpeed` and the child root's `PlaySpeed`, exactly once each. The call

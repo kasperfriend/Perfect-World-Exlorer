@@ -4695,3 +4695,38 @@ leaves, so the alpha goes uniform, the silhouette flattens into a hard band, and
 the texture is fine enough to read as still — a static bright image over a clock
 and a UV that were both advancing (`clock=122874ms`, `V=-184.311` in
 `CityOfRagingTides.log`).
+
+### 57.9 The render test: six disputed roots, measured against the client's own formula
+
+The 13 November preview run (`Findings/effect-preview/render.log.txt`) rendered
+one placement of each root the reports name, at 0 / 500 / 3000 ms, from two
+cameras, with `PWE_LOG=effect-elements,effect-cards,effect-uv,effect-clock`. Every
+card it drew can be checked against `2 x (file Width) x (DefScale x record scale)`,
+which is the client's `Update_3D` + `CalcParentTM`:
+
+| root | DefScale | record scale | file `Width x Height` | rendered card | ratio |
+|---|---|---|---|---|---|
+| `树林光束` | 0.700 | 9.36 | 0.5 x 10 | 6.55 x 130.98 | **1.000 / 1.000** |
+| `圣城之光` `greenring` | 1.000 | 89.79 | 2.25 x 2.25 | 404.04 x 404.04 | **1.000 / 1.000** |
+| `天煞光束` | 1.000 | 6.54 | 2.0 x 50 | 26.17 x 654.33 | **1.000 / 1.000** |
+| `水门_瀑布` `气连续03` | 1.000 | 2.74 | 0.9 x 1.25 | 4.92 x 6.84 | **1.000 / 1.000** |
+
+So the sizes the reports call oversized are the sizes the client computes, on all
+four roots, to three decimals. A size error is not what this is.
+
+Two things in the same run *were* wrong:
+
+1. **The tiled UV window** (§57.8). Every `tile=1` element now samples one sheet
+   and slides it: `水门_瀑布` `grid=3x2 speed=(0,-1.5)` reads
+   `uv=[(0,-0.025),(1,-0.025),(0,0.975),(1,0.975)]` at 33 ms, i.e. a 1 x 1 window
+   moved by `1.5 / 2 x 0.033`. Before the fix the same line read a 3 x 2 window.
+2. **The file's own `PlaySpeed` was thrown away** when a placement set one.
+   `场景/天煞光束.gfx` authors `PlaySpeed: 0.4` and its placements author
+   `fSpeed: 1`, so the client runs it at 0.4 while the player ran it at 1 — the
+   only root of the six whose clock did not match its shot (`player clock 792 ms`
+   for `asked 792 ms`; 317 was correct). `Player::play_speed` now returns
+   `root.play_speed * override`, which is `m_fDefPlaySpeed * m_fPlaySpeed`.
+
+The frames show the difference: the waterfall PNG is a soft, see-through sheet
+with the flow pattern readable at its authored scale, where the pre-fix frame was
+a finer, busier version of the same surface.
