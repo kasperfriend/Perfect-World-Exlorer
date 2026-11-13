@@ -13383,7 +13383,7 @@ mod tests {
             if !quads.is_empty() {
                 frames += 1;
             }
-                for quad in quads {
+            for quad in quads {
                 cards += 1;
                 // The client's `RotFromView` fill writes the corners as
                 // bottom-left, top-left, bottom-right, top-right: `verts[1] -

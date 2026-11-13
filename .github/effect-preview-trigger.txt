@@ -1,1 +1,1 @@
-sweep 2026-11-13T17:11:16Z pack tests round 3: E0425 + rustfmt break form
+sweep 2026-11-13T17:19:41Z fmt: for-loop indent
