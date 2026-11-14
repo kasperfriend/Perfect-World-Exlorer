@@ -110,7 +110,7 @@ The executable distributed alongside this source was rebuilt from this packaged 
 - `cargo run --bin scene-sound-check -- /path/to/element` surveys world sound placements and checks their paths against `sfx.pck`.
 - Some helper binaries and research scripts assume specific test data layouts. Consult their source and [Findings](Findings/README.md) before use.
 
-See [the world-loading optimization report](Findings/World-loading-optimization-2026-11-04.md) for implementation details, regression checks and measurement limits. A 6 GB laptop has not yet been hardware-verified.
+See [the world-loading optimization report](Findings/World-loading-optimization-2026-11-04.md) for implementation details, regression checks and measurement limits. `PW_FRAME_TIMING=1` logs presented FPS and CPU-side frame, surface-acquire, world-submit and minimap-submit timing once per second; GPU execution time is not included. See the [frame-performance audit](Findings/Frame-performance-audit-2026-11-14.md) for the scan findings and remaining candidates. A 6 GB laptop has not yet been hardware-verified.
 
 ## Known limitations
 

@@ -3031,7 +3031,15 @@ impl Renderer {
             pass.set_bind_group(0, &self.bind, &[]);
             pass.set_vertex_buffer(0, self.vertex.slice(..));
             pass.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(self.water_start..self.count, 0, 0..1);
+            // The camera-centred minimap is a small ortho window, but the old
+            // path submitted the complete full-world water index range. Reuse
+            // each batch's conservative world bounds so only water that can
+            // reach a minimap pixel is rasterized; the full-map view keeps all.
+            for batch in &self.water_batches {
+                if full_world || batch.visible(matrix) {
+                    pass.draw_indexed(batch.start..batch.end, 0, 0..1);
+                }
+            }
         }
         self.queue.submit(Some(e.finish()));
     }
@@ -3944,6 +3952,19 @@ fn receiving_model_frame(
         light.unwrap_or_else(neutral_regional_light),
     )
 }
+fn preferred_present_mode(
+    supported: &[wgpu::PresentMode],
+    fallback: wgpu::PresentMode,
+) -> wgpu::PresentMode {
+    if supported.contains(&wgpu::PresentMode::Mailbox) {
+        wgpu::PresentMode::Mailbox
+    } else if supported.contains(&wgpu::PresentMode::Fifo) {
+        wgpu::PresentMode::Fifo
+    } else {
+        fallback
+    }
+}
+
 async fn adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
@@ -4071,6 +4092,12 @@ pub fn run(
         .get_default_config(&adapter, size.width.max(1), size.height.max(1))
         .ok_or("surface configuration unavailable")?;
     config.format = surface_format;
+    // Prefer a non-tearing mailbox queue when the surface supports one. Unlike
+    // FIFO, mailbox does not make a missed refresh hold the producer until the
+    // next vblank, which can otherwise collapse apparent cadence to 30/20 FPS.
+    // FIFO remains the portable fallback and rendered pixels are unchanged.
+    config.present_mode = preferred_present_mode(&caps.present_modes, config.present_mode);
+    eprintln!("Surface present mode: {:?}", config.present_mode);
     if surface_format.is_srgb() {
         config
             .view_formats
@@ -4372,6 +4399,16 @@ pub fn run(
     let mut last_settings_save = Instant::now();
     let mut last = Instant::now();
     let mut region_tick_ms = renderer.started.elapsed().as_millis() as u64;
+    // Opt-in non-blocking timing for distinguishing CPU-side submission and
+    // surface pacing from GPU execution. It never polls/waits on the device.
+    let frame_timing = std::env::var_os("PW_FRAME_TIMING").is_some();
+    let mut timing_window = Instant::now();
+    let mut timing_frames = 0u64;
+    let mut timing_frame = std::time::Duration::ZERO;
+    let mut timing_acquire = std::time::Duration::ZERO;
+    let mut timing_render = std::time::Duration::ZERO;
+    let mut timing_minimap = std::time::Duration::ZERO;
+    let mut timing_present = std::time::Duration::ZERO;
     event_loop
         .run(move |event, target| match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => {
@@ -4702,8 +4739,13 @@ pub fn run(
                         match result { Ok(img)=>{let size=[img.width() as usize,img.height() as usize];let pixels=img.into_raw();let color=egui::ColorImage::from_rgba_unmultiplied(size,&pixels);original_minimap_id=Some(egui_ctx.load_texture("original minimap",color,egui::TextureOptions::LINEAR));},Err(e)=>{eprintln!("Original minimap: {e}");original_minimap_error=Some(e);}}
                         original_minimap_rx=None;
                     }}
+                    let timing_frame_start = frame_timing.then(Instant::now);
+                    let timing_acquire_start = frame_timing.then(Instant::now);
                     match surface.get_current_texture() {
                         Ok(frame) => {
+                            if let Some(start) = timing_acquire_start {
+                                timing_acquire += start.elapsed();
+                            }
                             let surface_view = frame.texture.create_view(&Default::default());
                             // Composition target: the whole-frame gamma intermediate, else the
                             // present-encode intermediate, else the swapchain itself. This is
@@ -4715,6 +4757,7 @@ pub fn run(
                             // present it into `scene_view` before the UI pass loads that result.
                             let world_view = render_scale.view();
                             let world_raw_view = render_scale.raw_view();
+                            let timing_render_start = frame_timing.then(Instant::now);
                             renderer.render(
                                 &world_view,
                                 &world_raw_view,
@@ -4723,6 +4766,9 @@ pub fn run(
                                 applied_extent.0,
                                 applied_extent.1,
                             );
+                            if let Some(start) = timing_render_start {
+                                timing_render += start.elapsed();
+                            }
                             render_scale.blit(&renderer.device, &renderer.queue, scene_view);
                             // Refresh the top-down view on every presented frame. The old
                             // 350ms timer capped minimap motion to fewer than 3 FPS.
@@ -4730,12 +4776,16 @@ pub fn run(
                             // original style draws client artwork instead, so the
                             // overhead pass is skipped rather than rendered and
                             // hidden.
+                            let timing_minimap_start = frame_timing.then(Instant::now);
                             if settings.show_minimap && settings.minimap_style==MapStyle::Realistic {
                                 renderer.render_minimap(&map_view,&map_depth,&camera,settings.minimap_range,false);
                             }
                             if menu_page==MenuPage::WorldMap && settings.world_map_style==MapStyle::Realistic && map_refresh.elapsed()>=std::time::Duration::from_secs(2) {
                                 renderer.render_minimap(&full_map_view,&full_map_depth,&camera,0.,true);
                                 map_refresh=Instant::now();
+                            }
+                            if let Some(start) = timing_minimap_start {
+                                timing_minimap += start.elapsed();
                             }
                             renderer.modules.prepare_librarian_preview(&renderer.device, &renderer.queue, &mut egui_renderer, format, menu_page==MenuPage::Modules);
                             if menu_page.is_open() || settings.show_minimap || renderer.modules.overlay_active() || zone_banner.as_ref().is_some_and(|(_,t)|t.elapsed().as_secs_f32()<4.) {
@@ -4991,7 +5041,35 @@ pub fn run(
                                     frame_gamma_setting,
                                 );
                             }
+                            let timing_present_start = frame_timing.then(Instant::now);
                             frame.present();
+                            if let Some(start) = timing_present_start {
+                                timing_present += start.elapsed();
+                            }
+                            if let Some(start) = timing_frame_start {
+                                timing_frame += start.elapsed();
+                                timing_frames += 1;
+                                let window_elapsed = timing_window.elapsed();
+                                if window_elapsed >= std::time::Duration::from_secs(1) {
+                                    let frames = timing_frames.max(1) as f64;
+                                    eprintln!(
+                                        "Frame timing: {:.1} FPS; interval {:.2} ms; surface acquire {:.2} ms; world CPU submit {:.2} ms; map CPU submit {:.2} ms; present call {:.2} ms (GPU execution is not included)",
+                                        frames / window_elapsed.as_secs_f64(),
+                                        timing_frame.as_secs_f64() * 1000. / frames,
+                                        timing_acquire.as_secs_f64() * 1000. / frames,
+                                        timing_render.as_secs_f64() * 1000. / frames,
+                                        timing_minimap.as_secs_f64() * 1000. / frames,
+                                        timing_present.as_secs_f64() * 1000. / frames,
+                                    );
+                                    timing_window = Instant::now();
+                                    timing_frames = 0;
+                                    timing_frame = std::time::Duration::ZERO;
+                                    timing_acquire = std::time::Duration::ZERO;
+                                    timing_render = std::time::Duration::ZERO;
+                                    timing_minimap = std::time::Duration::ZERO;
+                                    timing_present = std::time::Duration::ZERO;
+                                }
+                            }
                             if !handoff_ready_signaled {
                                 crate::world_handoff::signal_ready();
                                 handoff_ready_signaled = true;
@@ -5425,6 +5503,22 @@ pub fn preview(
 #[cfg(test)]
 mod water_batch_tests {
     use super::*;
+
+    #[test]
+    fn mailbox_present_is_preferred_without_changing_fifo_fallback() {
+        assert_eq!(
+            preferred_present_mode(
+                &[wgpu::PresentMode::Fifo, wgpu::PresentMode::Mailbox],
+                wgpu::PresentMode::Fifo,
+            ),
+            wgpu::PresentMode::Mailbox
+        );
+        assert_eq!(
+            preferred_present_mode(&[wgpu::PresentMode::Fifo], wgpu::PresentMode::Fifo),
+            wgpu::PresentMode::Fifo
+        );
+    }
+
     fn batch(bounds: [f32; 4], height: f32) -> WaterBatch {
         WaterBatch {
             simple: false,
@@ -5433,6 +5527,12 @@ mod water_batch_tests {
             height,
             bounds,
         }
+    }
+    #[test]
+    fn top_down_minimap_water_bounds_reject_off_window_batches() {
+        let matrix = minimap_matrix(0., 0., 10.);
+        assert!(batch([-5., 5., -5., 5.], 0.).visible(matrix));
+        assert!(!batch([100., 110., -5., 5.], 0.).visible(matrix));
     }
     #[test]
     fn escape_navigates_menu_pages() {
