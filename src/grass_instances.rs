@@ -195,11 +195,11 @@ impl Gpu {
         // The retail grass VS computes alpha per original world-space vertex,
         // and its PS multiplies this into the texture alpha before D3D alpha test.
         // i.diffuse stores the authored per-type range as f32 bits for this pass.
-        let marker = "@location(5) diffuse:vec3<f32> };";
+        let marker = "@location(5) diffuse:vec3<f32>, @location(6) opacity:f32 };";
         assert!(source.contains(marker));
         source = source.replacen(
             marker,
-            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32>, @location(8) grass_refraction:f32, @location(10) @interpolate(flat) grass_scale_y:f32 };",
+            "@location(5) diffuse:vec3<f32>, @location(6) opacity:f32, @location(7) grass_fade:f32, @location(8) @interpolate(flat) grass_area:vec2<f32>, @location(10) grass_refraction:f32, @location(11) @interpolate(flat) grass_scale_y:f32 };",
             1,
         );
         let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";

@@ -1268,7 +1268,7 @@ fn bmd_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f32> 
 }
 
 struct VIn { @location(0) pos:vec3<f32>, @location(1) normal:vec3<f32>, @location(2) uv:vec2<f32>, @location(3) color:vec4<f32>, @location(4) kind:f32, @location(5) diffuse:u32, @location(7) night_diffuse:u32 };
-struct VOut { @builtin(position) pos:vec4<f32>, @location(9) bmd_refraction:f32, @location(0) normal:vec3<f32>, @location(1) uv:vec2<f32>, @location(2) color:vec4<f32>, @location(3) @interpolate(flat) kind:f32, @location(4) world:vec3<f32>, @location(5) diffuse:vec3<f32> };
+struct VOut { @builtin(position) pos:vec4<f32>, @location(9) bmd_refraction:f32, @location(0) normal:vec3<f32>, @location(1) uv:vec2<f32>, @location(2) color:vec4<f32>, @location(3) @interpolate(flat) kind:f32, @location(4) world:vec3<f32>, @location(5) diffuse:vec3<f32>, @location(6) opacity:f32 };
 // 0x7b9bc0 quantizes the night weight, mixes bytes with integer products,
 // divides by 256 (not 255), and forces alpha to 255. Keep that arithmetic
 // integer until the final vertex-color conversion; UNORM round trips can
@@ -1281,8 +1281,11 @@ fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32> {
 }
 @vertex fn vs(i:VIn)->VOut { var o:VOut; var pos=i.pos; var norm=i.normal;
  if i.kind>4.5 { let d=normalize(camera.direction.xyz); let az=atan2(d.z,d.x); let el=asin(clamp(d.y,-1.,1.)); let rho=i.color.w; let q=vec3<f32>(cos(el)*i.normal.x-sin(el)*i.normal.z,i.normal.y,sin(el)*i.normal.x+cos(el)*i.normal.z); let a=az+rho;var v=vec3<f32>(cos(a)*q.x-sin(a)*q.y,sin(a)*q.x+cos(a)*q.y,q.z);if rho>1000. { v=i.normal; }pos+=vec3<f32>(v.x,v.z,v.y);norm=vec3<f32>(0.,1.,0.); }
- o.pos=camera.matrix*vec4<f32>(pos,1.);o.bmd_refraction=1.;if camera.clip.y<0. && i.kind>1.5 && i.kind<2.5 {o.bmd_refraction=bmd_refraction_transmittance(pos);}o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.diffuse=vec3<f32>(bmd_baked_rgb(i.diffuse,i.night_diffuse,1.-camera.direction.w))/255.;return o; }
-@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.05 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} if i.kind>1.05 && i.kind<1.25 {return vec4<f32>(bmd_pass_fog(clamp(i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.)),i.pos.w,i.bmd_refraction),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let sdr_v=select(0.,-0.5*camera.grass_wind.x,(i.kind>2.01 && i.kind<2.03)||(i.kind>2.11 && i.kind<2.13));let local=fract((i.uv-i.color.xy)/scale+vec2<f32>(0.,sdr_v))*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
+ o.pos=camera.matrix*vec4<f32>(pos,1.);o.bmd_refraction=1.;if camera.clip.y<0. && i.kind>1.5 && i.kind<2.5 {o.bmd_refraction=bmd_refraction_transmittance(pos);}o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.diffuse=vec3<f32>(bmd_baked_rgb(i.diffuse,i.night_diffuse,1.-camera.direction.w))/255.;o.opacity=f32((i.diffuse>>24u)&255u)/255.;return o; }
+fn sdr_blend_band(kind:f32)->bool { return (kind>2.01 && kind<2.03)||(kind>2.11 && kind<2.13); }
+fn fs_body(i:VOut, front:bool)->vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.05 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} if i.kind>1.05 && i.kind<1.25 {return vec4<f32>(bmd_pass_fog(clamp(i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.)),i.pos.w,i.bmd_refraction),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let sdr_v=select(0.,-0.5*camera.grass_wind.x,sdr_blend_band(i.kind));let local=fract((i.uv-i.color.xy)/scale+vec2<f32>(0.,sdr_v))*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if !sdr_blend_band(i.kind) && ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),select(1.,raw_tex.a*i.opacity,sdr_blend_band(i.kind)));} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.); }
+@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }
+@fragment fn fs_sdr(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if !sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }
 "#;
 struct Renderer {
     /// Optional add-ons; default-disabled and absent from headless previews.
@@ -1295,6 +1298,7 @@ struct Renderer {
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
     scenery_pipeline: wgpu::RenderPipeline,
+    sdr_blend_pipeline: wgpu::RenderPipeline,
     terrain_gpu: crate::terrain_gpu::TerrainGpu,
     sky: crate::sky_gpu::SkyGpu,
     weather: crate::weather_gpu::WeatherGpu,
@@ -1811,6 +1815,68 @@ impl Renderer {
             multisample: Default::default(),
             multiview: None,
         });
+        // The client's baked-water law, for the one band the cutout above
+        // renders wrong. The `.sdr.` water/lava curtains (the downward-scroll
+        // scripts `瀑布`, `瀑布细长`, `青云山小瀑布`, `岩浆`, kind 2.02/2.12)
+        // are `ALPHABLENDENABLE(1)` with `SRCALPHA`/`INVSRCALPHA` and surface
+        // alpha `texture.a * diffuse.a` in the client (bmd_baked.rs header,
+        // `0x7a9785` `ALPHAOP(4)` = `MODULATE`), so their translucent texels
+        // show the scene through the sheet. The shared cutout draws them
+        // opaque instead — the reported "waterfalls are a white plain texture
+        // with no transparency". This pipeline draws JUST that band (the
+        // `fs_sdr` entry discards every other kind) with the client's blend,
+        // after the whole scenery range has finished. Depth write is off
+        // here: the client leaves `ZWRITEENABLE` on and gets away with it by
+        // mesh order, but this pass runs last, and a depth-writing translucent
+        // card is exactly the lily-pad/canopy failure the cutout exists to
+        // avoid (see the `scenery_pipeline` note). Depth *test* is unchanged,
+        // so nearer geometry still occludes the sheet.
+        let sdr_blend_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sdr blend GPU pipeline"),
+            layout: Some(&pl),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs",
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &ATTR,
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_sdr",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+        });
         let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&m.vertices),
@@ -1927,6 +1993,7 @@ impl Renderer {
             queue,
             pipeline,
             scenery_pipeline,
+            sdr_blend_pipeline,
             uniform,
             reflected_uniform,
             bind,
@@ -2581,6 +2648,32 @@ impl Renderer {
             // The view's commands were folded once when the world finished
             // loading: its placements are frozen, so nothing here is per-frame
             // work beyond the page binds and the draws themselves.
+            let slot = crate::world_objects::GpuPage::world_view_slot(pass_kind);
+            crate::world_objects::GpuPage::draw_world(
+                &self.world_pages,
+                &self.world_draw_cmds[slot],
+                &mut p,
+                reflected,
+            );
+        }
+        // The `.sdr.` water/lava curtains draw in their own blended pass over
+        // the finished scene: `fs_sdr` keeps only kind 2.02/2.12 and drops
+        // every other fragment, so replaying the same ranges is free, and the
+        // `fs` entry dropped those kinds in the pass above so the sheet is
+        // never drawn twice. Order is terrain/streamed, then pages, exactly as
+        // the unblended pass above — the sheet blends over the whole world
+        // once, the client's visible result for a curtain.
+        p.set_pipeline(&self.sdr_blend_pipeline);
+        p.set_bind_group(0, bind, &[]);
+        p.set_vertex_buffer(0, self.vertex.slice(..));
+        p.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
+        p.draw_indexed(self.terrain_end..local_end, 0, 0..1);
+        if !self.world_done {
+            for page in &self.local_pages {
+                page.draw_selected(&mut p, reflected, pass_kind);
+            }
+        }
+        if self.world_done {
             let slot = crate::world_objects::GpuPage::world_view_slot(pass_kind);
             crate::world_objects::GpuPage::draw_world(
                 &self.world_pages,
@@ -5202,6 +5295,38 @@ mod frame_snapshot_tests {
         ] {
             assert!(src.contains(needle), "missing production wiring: {needle}");
         }
+    }
+
+    /// The `.sdr.` water/lava curtains (kind 2.02/2.12, the downward-scroll
+    /// scripts) draw in their own blended pass: `fs` drops their fragments,
+    /// `fs_sdr` keeps only theirs and returns the client's surface alpha
+    /// `texture.a * diffuse.a` (bmd_baked.rs: `0x7a9785` `ALPHAOP(4)` =
+    /// `MODULATE`) through `SRCALPHA`/`INVSRCALPHA`. Before the split the
+    /// shared alpha-test cutout drew the sheets opaque — the reported
+    /// "waterfalls are a white plain texture with no transparency". The
+    /// wiring is source-pinned because the second entry point and the blend
+    /// state are what carry the law.
+    #[test]
+    fn sdr_water_curtains_draw_in_their_own_blended_pass() {
+        assert!(SHADER.contains("fn sdr_blend_band(kind:f32)->bool"));
+        assert!(SHADER.contains(
+            "@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }"
+        ));
+        assert!(SHADER.contains(
+            "@fragment fn fs_sdr(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if !sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }"
+        ));
+        // The surface alpha: the texture's own alpha times the mesh-opacity
+        // byte the vertex diffuse word carries (`mesh+0x2cc << 24`, `0xff`
+        // unless a mesh declares opacity).
+        assert!(SHADER.contains("select(1.,raw_tex.a*i.opacity,sdr_blend_band(i.kind))"));
+        // The band must skip the alpha-test cutout that keeps the rest of the
+        // baked world opaque.
+        assert!(SHADER.contains(
+            "if !sdr_blend_band(i.kind) && ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select"
+        ));
+        let src = source();
+        assert!(src.contains("entry_point: \"fs_sdr\""));
+        assert!(src.contains("p.set_pipeline(&self.sdr_blend_pipeline);"));
     }
 }
 
