@@ -8182,7 +8182,10 @@ mod tests {
              displace the position at all"
         );
         // ...and it does flicker: the particle colour changes over the run.
-        assert!(colours.len() > 1, "the 107 flicker never changed the colour");
+        assert!(
+            colours.len() > 1,
+            "the 107 flicker never changed the colour"
+        );
     }
 
     /// Controller 107's `Amplitude` is a flicker depth over the colour
