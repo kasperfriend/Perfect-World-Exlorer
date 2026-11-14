@@ -728,7 +728,9 @@ pub fn load_sequences(
         jobs.push((name, entry, false));
     }
 
-    let workers = crate::loading_workers::worker_limit().min(jobs.len()).max(1);
+    let workers = crate::loading_workers::worker_limit()
+        .min(jobs.len())
+        .max(1);
     let next = AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::sync_channel(workers * 2);
     let decoded = std::thread::scope(|scope| -> Result<Vec<Result<Vec<image::RgbaImage>, String>>, String> {
