@@ -8302,7 +8302,17 @@ mod tests {
     /// two schedules below disagree.
     #[test]
     fn a_colour_noise_walk_is_the_clock_walk_not_per_frame_noise() {
-        let fractal = "GFXELEMENTID: 121\\r\\nName: dust\\r\\nSrcBlend: 5\\r\\nDestBlend: 2\\r\\nTexFile: 粒子\\\\particle001.dds\\r\\nQuota: -1\\r\\nParticleWidth: 0.4\\r\\nParticleHeight: 0.4\\r\\nEmissionRate: 100\\r\\nSpeed: 0.1\\r\\nTTL: 10\\r\\nColorMin: -1\\r\\nColorMax: -1\\r\\nScaleMin: 0.2\\r\\nScaleMax: 0.1\\r\\nRotMin: 0\\r\\nRotMax: 0\\r\\nIsSurface: 0\\r\\nIsBind: 0\\r\\nAreaSize: 1.0, 1.0, 1.0\\r\\nAffectorCount: 1\\r\\nCtrlType: 107\\r\\nStartTime: 0\\r\\nEndTime: -1\\r\\nBufLen: 256\\r\\nAmplitude: 400\\r\\nWaveLen: 100\\r\\nPersistence: 0.25\\r\\nOctaveNum: 5\\r\\nBaseColor: -1\\r\\nStartTime: 0\\r\\nKEYPOINTCOUNT: 1\\r\\nInterpolateMode: 0\\r\\nTimeSpan: -1\\r\\nPosition: 0, 0, 0\\r\\nColor: -1\\r\\nScale: 1\\r\\nDirection: 0, 0, 0, 1\\r\\nRad_2D: 0\\r\\nCtrlMethodCount: 0\\r\\n";
+        let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             TexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\n\
+             ParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\n\
+             ColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\n\
+             RotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\n\
+             AreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\n\
+             StartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 400\r\n\
+             WaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\n\
+             BaseColor: -1\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+             TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\n\
+             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
         let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
         let mut one_long = build(&(header.clone() + fractal));
         let mut many_short = build(&(header + fractal));
@@ -8336,7 +8346,17 @@ mod tests {
         // BaseColor: -16776961 = 0xFF00FF00 — green, opaque (the client's
         // `BaseColor` is the base as authored; there is no keypoint-colour
         // substitution in the class).
-        let fractal = "GFXELEMENTID: 121\\r\\nName: dust\\r\\nSrcBlend: 5\\r\\nDestBlend: 2\\r\\nTexFile: 粒子\\\\particle001.dds\\r\\nQuota: -1\\r\\nParticleWidth: 0.4\\r\\nParticleHeight: 0.4\\r\\nEmissionRate: 100\\r\\nSpeed: 0.1\\r\\nTTL: 10\\r\\nColorMin: -1\\r\\nColorMax: -1\\r\\nScaleMin: 0.2\\r\\nScaleMax: 0.1\\r\\nRotMin: 0\\r\\nRotMax: 0\\r\\nIsSurface: 0\\r\\nIsBind: 0\\r\\nAreaSize: 1.0, 1.0, 1.0\\r\\nAffectorCount: 1\\r\\nCtrlType: 107\\r\\nStartTime: 0\\r\\nEndTime: -1\\r\\nBufLen: 256\\r\\nAmplitude: 200\\r\\nWaveLen: 100\\r\\nPersistence: 0.25\\r\\nOctaveNum: 5\\r\\nBaseColor: -16776961\\r\\nStartTime: 0\\r\\nKEYPOINTCOUNT: 1\\r\\nInterpolateMode: 0\\r\\nTimeSpan: -1\\r\\nPosition: 0, 0, 0\\r\\nColor: -1\\r\\nScale: 1\\r\\nDirection: 0, 0, 0, 1\\r\\nRad_2D: 0\\r\\nCtrlMethodCount: 0\\r\\n";
+        let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             TexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\n\
+             ParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\n\
+             ColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\n\
+             RotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\n\
+             AreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\n\
+             StartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 200\r\n\
+             WaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\n\
+             BaseColor: -16776961\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+             TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\n\
+             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
         let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
         let mut player = build(&(header + fractal));
         let mut alphas = std::collections::BTreeSet::new();
