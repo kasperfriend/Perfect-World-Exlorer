@@ -194,21 +194,30 @@ pub fn probe_sdk(settings_dir: &str) -> SdkReport {
         (None, SdkSource::Unset)
     };
     let dir_is_dir = dir.as_ref().is_some_and(|dir| dir.is_dir());
-    // Borrow the path, not the Option, so `dir` can move into the report.
+    // Borrow the path, not the Option, so `dir` can move into the report;
+    // the probe closures must be finished before the struct is built.
     let dir_path = dir.as_deref();
     let probe = |names: &[&str]| dir_path.map(|dir| probe_any(dir, names)).unwrap_or(false);
+    let dlss = probe(&DLSS_SR_NAMES);
+    let dlss_frame_generation = probe(&DLSS_FG_NAMES);
+    let streamline = probe(&STREAMLINE_NAMES);
+    let fsr_upscale = probe(&FSR_UPSCALE_NAMES);
+    let fsr_frame_generation = probe(&FSR_FG_NAMES);
+    let fsr_optical_flow = probe(&FSR_OPTICAL_FLOW_NAMES);
+    let xess = probe(&XESS_NAMES);
+    let xess_frame_generation = probe(&XESS_FG_NAMES);
     SdkReport {
         dir,
         source,
         dir_is_dir,
-        dlss: probe(&DLSS_SR_NAMES),
-        dlss_frame_generation: probe(&DLSS_FG_NAMES),
-        streamline: probe(&STREAMLINE_NAMES),
-        fsr_upscale: probe(&FSR_UPSCALE_NAMES),
-        fsr_frame_generation: probe(&FSR_FG_NAMES),
-        fsr_optical_flow: probe(&FSR_OPTICAL_FLOW_NAMES),
-        xess: probe(&XESS_NAMES),
-        xess_frame_generation: probe(&XESS_FG_NAMES),
+        dlss,
+        dlss_frame_generation,
+        streamline,
+        fsr_upscale,
+        fsr_frame_generation,
+        fsr_optical_flow,
+        xess,
+        xess_frame_generation,
     }
 }
 
