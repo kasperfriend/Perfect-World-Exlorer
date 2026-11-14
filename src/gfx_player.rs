@@ -4606,8 +4606,21 @@ fn emit_model(
         if mesh.texture.is_empty() || mesh.vertices.len() < 3 {
             continue;
         }
-        let sdr_uv = crate::objects::SdrUvAnim::from_texture_path(&mesh.texture)
-            .unwrap_or(crate::objects::SdrUvAnim::IDENTITY);
+        let (sdr_scale, sdr_scroll) = match mesh
+            .texture
+           .to_ascii_lowercase()
+           .find(".sdr.")
+           .and_then(|i| mesh.texture[..i].rsplit(['\\', '/']).next())
+           .map(str::trim)
+         {
+           Some("瀑布" | "瀑布细长") => ([1., 1.], [0., -0.5]),
+           Some("青云山小瀑布") => ([0.6, 0.6], [0., -0.5]),
+           Some("池水") => ([0.7, 0.7], [0.004, 0.004]),
+           Some("岩浆") => ([1., 1.], [0., -0.15]),
+           Some("水") => ([1., 1.], [0., 0.10]),
+           Some("血池") => ([1., 1.], [0.001, 0.001]),
+           _ => ([1., 1.], [0., 0.]),
+        };
         let sdr_t = context.clock * 0.001;
         let placed: Vec<EffectVertex> = mesh
             .vertices
@@ -4646,8 +4659,8 @@ fn emit_model(
                 EffectVertex {
                     position: position.to_array(),
                     uv: [
-                        vertex.uv[0] * sdr_uv.tc_scale[0] + sdr_uv.tc_scroll[0] * sdr_t,
-                        vertex.uv[1] * sdr_uv.tc_scale[1] + sdr_uv.tc_scroll[1] * sdr_t,
+                        vertex.uv[0] * sdr_scale[0] + sdr_scroll[0] * sdr_t,
+                        vertex.uv[1] * sdr_scale[1] + sdr_scroll[1] * sdr_t,
                     ],
                     normal: normal.to_array(),
                 }
