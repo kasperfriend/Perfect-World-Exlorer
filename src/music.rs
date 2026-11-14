@@ -144,7 +144,7 @@ impl Zones {
         let mut zones = Vec::new();
         let mut i = 0usize;
         while i + 1 < lines.len() {
-            let Some(name) = quoted(lines[i]) else {
+            let Ok(name) = quoted(lines[i]) else {
                 i += 1;
                 continue;
             };
