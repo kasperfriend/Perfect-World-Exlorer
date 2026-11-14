@@ -754,6 +754,10 @@ fn terrain(
         map.id,
         dir.display()
     );
+    eprintln!(
+        "Startup CPU worker budget: {} logical CPUs (PW_LOAD_WORKERS may override)",
+        crate::loading_workers::worker_limit()
+    );
     #[cfg(windows)]
     windows_setup::loading_progress(format!("Loading {}...", map.label()));
     let terrain_path = map.file("trn2");

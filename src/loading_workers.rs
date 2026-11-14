@@ -3,7 +3,8 @@
 //! Terrain decoding, world-model parsing and water texture decoding overlap.
 //! Letting each pool independently use every logical core oversubscribes the
 //! machine; a single permit gate lets pools scale up while bounding concurrent
-//! CPU work across them. `PW_LOAD_WORKERS` is an opt-in override (1..=128).
+//! CPU work across them. By default the gate uses all available logical CPUs;
+//! `PW_LOAD_WORKERS` is an opt-in override (1..=128).
 use std::sync::{Condvar, Mutex, OnceLock};
 
 struct Gate {
@@ -20,27 +21,29 @@ fn configured_workers() -> Option<usize> {
         .filter(|value| (1..=128).contains(value))
 }
 
-/// Maximum workers each independent pool may queue. The gate below controls
-/// how many of those workers may run CPU-heavy work at once.
+fn hardware_worker_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+}
+
+fn resolve_worker_count(configured: Option<usize>, hardware: usize) -> usize {
+    configured.unwrap_or(hardware.max(1))
+}
+
+/// Maximum workers each independent pool may queue. The shared gate controls
+/// the aggregate number of CPU-heavy tasks allowed to run concurrently.
 pub fn worker_limit() -> usize {
-    configured_workers().unwrap_or_else(|| {
-        std::thread::available_parallelism()
-            .map(|count| count.get())
-            .unwrap_or(1)
-    })
+    resolve_worker_count(configured_workers(), hardware_worker_count())
 }
 
 fn gate() -> &'static Gate {
-    GATE.get_or_init(|| {
-        let permits = configured_workers().unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(|count| count.get().saturating_sub(1).max(1))
-                .unwrap_or(1)
-        });
-        Gate {
-            available: Mutex::new(permits),
-            wake: Condvar::new(),
-        }
+    GATE.get_or_init(|| Gate {
+        // Loading is the foreground operation. Use every CPU reported by the
+        // OS rather than reserving one: progress reporting is lightweight and
+        // reserving a core can needlessly lengthen CPU-bound decompression.
+        available: Mutex::new(worker_limit()),
+        wake: Condvar::new(),
     })
 }
 
@@ -71,8 +74,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn permits_are_released_on_drop() {
+    fn default_worker_budget_uses_all_available_parallelism() {
+        assert_eq!(resolve_worker_count(None, 8), 8);
+        assert_eq!(resolve_worker_count(None, 1), 1);
+        assert_eq!(resolve_worker_count(Some(3), 8), 3);
         assert!(worker_limit() >= 1);
+    }
+
+    #[test]
+    fn permits_are_released_on_drop() {
         drop(acquire());
         drop(acquire());
     }

@@ -152,10 +152,12 @@ CPU terrain-data budget, not a whole-program or GPU-memory limit.
   repeated disk reads while flying, at the cost of RAM.
 - `PW_TERRAIN_THREADS` sets terrain block workers (1..64); by default the viewer
   detects available parallelism. `PW_LOAD_WORKERS` sets the shared startup worker
-  budget (1..128). Its default is hardware-derived and gates terrain compression,
-  world-model loading, and water texture decode together to avoid competing pools
-  each claiming every core. Raising it can help machines with spare CPU or fast
-  storage; reduce it if memory pressure or system responsiveness becomes an issue.
+  budget (1..128). Its hardware-derived default uses all logical CPUs reported by
+  the OS and gates terrain compression, world-model loading, and water texture
+  decode together to avoid competing pools each claiming every core. Reduce it if
+  storage contention, memory pressure, thermals, or system responsiveness become
+  an issue. See [the startup parallelism assessment](Findings/Load-parallelism-2026-11-14.md)
+  for GPU and DirectStorage limits; instant loading is not guaranteed.
 - Cache objects are content-addressed and verified; changed client data cannot
   reuse stale terrain. Warm starts skip terrain block decode/recompression and
   verify pages on demand; source identity is still checked against the client.
