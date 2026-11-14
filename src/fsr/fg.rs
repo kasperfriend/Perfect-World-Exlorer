@@ -31,16 +31,17 @@
 //! lists restore every tracked state so wgpu's tracker never desynchronises.
 
 use super::imp::{
-    choose_version_for_major, raw_dx12, FfxApiDimensions2D, FfxApiFloatCoords2D,
-    FfxApiHeader, FfxApiResource, FfxCreateBackendDX12Desc, FfxLoader, FfxOverrideVersion,
+    choose_version_for_major, raw_dx12, FfxApiDimensions2D, FfxApiFloatCoords2D, FfxApiHeader,
+    FfxApiResource, FfxCreateBackendDX12Desc, FfxLoader, FfxOverrideVersion,
     FfxQueryDescGetVersions, FsrMotionVectorPass, FsrMvParams, NativeTexture2D,
-    FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
-    FFX_API_SURFACE_FORMAT_R16G16_FLOAT, FFX_API_SURFACE_FORMAT_R32_FLOAT,
+    FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ, FFX_API_SURFACE_FORMAT_R16G16_FLOAT,
+    FFX_API_SURFACE_FORMAT_R32_FLOAT,
 };
 use glam::Mat4;
 use std::ffi::c_void;
 use winapi::shared::dxgi::{
-    DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_EFFECT_FLIP_DISCARD, IDXGISwapChain,
+    IDXGISwapChain, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
+    DXGI_SWAP_EFFECT_FLIP_DISCARD,
 };
 use winapi::shared::dxgi1_2::{DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1};
 use winapi::shared::dxgi1_3;
@@ -64,8 +65,8 @@ pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION: u64 =
 pub(crate) const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2: u64 = 0x0002000c;
 pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12: u64 =
     0x00030006;
-pub(crate) const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12:
-    u64 = 0x00030002;
+pub(crate) const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12: u64 =
+    0x00030002;
 pub(crate) const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12:
     u64 = 0x00030003;
 pub(crate) const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12: u64 =
@@ -377,7 +378,9 @@ impl FrameGeneration {
 
         let (allocator, hr) = raw_device.create_command_allocator(d3d12::CmdListType::Direct);
         if hr < 0 {
-            return Err(format!("create_command_allocator failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "create_command_allocator failed (HRESULT 0x{hr:08x})"
+            ));
         }
         let (list, hr) = raw_device.create_graphics_command_list(
             d3d12::CmdListType::Direct,
@@ -386,11 +389,15 @@ impl FrameGeneration {
             0,
         );
         if hr < 0 {
-            return Err(format!("create_graphics_command_list failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "create_graphics_command_list failed (HRESULT 0x{hr:08x})"
+            ));
         }
         let hr = list.close();
         if hr < 0 {
-            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"
+            ));
         }
 
         // --- Create the proxy swapchain. FFX creates the new swapchain
@@ -412,7 +419,10 @@ impl FrameGeneration {
             Height: height,
             Format: backbuffer_format,
             Stereo: 0,
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
             BufferCount: 3,
             Scaling: DXGI_SCALING_STRETCH,
@@ -452,7 +462,9 @@ impl FrameGeneration {
             (*factory).Release();
         }
         if rc != super::imp::FFX_API_RETURN_OK || proxy.is_null() {
-            return Err(format!("creating the frame generation swapchain failed (0x{rc:x})"));
+            return Err(format!(
+                "creating the frame generation swapchain failed (0x{rc:x})"
+            ));
         }
 
         // --- Create the frame generation context itself.
@@ -461,9 +473,7 @@ impl FrameGeneration {
             device: device_ptr,
         };
         let mut fg_version = FfxCreateContextDescFrameGenerationVersion {
-            header: FfxApiHeader::new(
-                FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION,
-            ),
+            header: FfxApiHeader::new(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION),
             version: FFX_FRAMEGENERATION_VERSION,
         };
         let mut override_version = FfxOverrideVersion {
@@ -499,14 +509,17 @@ impl FrameGeneration {
                 (loader.destroy_context)(&mut sc_ctx, std::ptr::null());
                 (*(proxy as *mut IDXGISwapChain4)).Release();
             }
-            return Err(format!("creating the frame generation context failed (0x{rc:x})"));
+            return Err(format!(
+                "creating the frame generation context failed (0x{rc:x})"
+            ));
         }
 
         // From here on every fallible step must unwind the FFX contexts and
         // the proxy swapchain before returning, or we leak the hwnd's only
         // swapchain slot and the caller cannot recover.
         let resources = (|| {
-            let compose = unsafe { Self::make_compose(device, &raw_device, display_extent, surface_format)? };
+            let compose =
+                unsafe { Self::make_compose(device, &raw_device, display_extent, surface_format)? };
             let ui = unsafe { Self::make_ui(device, &raw_device, display_extent, ui_format)? };
             let depth = unsafe { Self::make_depth(device, &raw_device, render_extent)? };
             let mv = unsafe { Self::make_mv(device, &raw_device, render_extent)? };
@@ -730,7 +743,10 @@ impl FrameGeneration {
             aspect: wgpu::TextureAspect::All,
             ..Default::default()
         });
-        let mv_view = self.mv.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mv_view = self
+            .mv
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let depth_out_view = self
             .depth
             .texture
@@ -783,9 +799,13 @@ impl FrameGeneration {
 
         // --- Native FFX prepare on the same queue, right after wgpu's submit.
         self.allocator.reset();
-        let hr = self.list.reset(&self.allocator, d3d12::PipelineState::null());
+        let hr = self
+            .list
+            .reset(&self.allocator, d3d12::PipelineState::null());
         if hr < 0 {
-            return Err(format!("ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"
+            ));
         }
         let barrier = |resource: &d3d12::Resource, before: u32, after: u32| {
             d3d12::ResourceBarrier::transition(
@@ -797,8 +817,16 @@ impl FrameGeneration {
             )
         };
         let barriers = [
-            barrier(&self.depth.resource, D3D12_STATE_RENDER_TARGET, D3D12_STATE_PIXEL_COMPUTE_READ),
-            barrier(&self.mv.resource, D3D12_STATE_RENDER_TARGET, D3D12_STATE_PIXEL_COMPUTE_READ),
+            barrier(
+                &self.depth.resource,
+                D3D12_STATE_RENDER_TARGET,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+            ),
+            barrier(
+                &self.mv.resource,
+                D3D12_STATE_RENDER_TARGET,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+            ),
         ];
         self.list.resource_barrier(&barriers);
         let mut prepare = FfxDispatchDescFrameGenerationPrepareV2 {
@@ -810,7 +838,10 @@ impl FrameGeneration {
                 width: rw,
                 height: rh,
             },
-            jitter_offset: FfxApiFloatCoords2D { x: jitter.0, y: jitter.1 },
+            jitter_offset: FfxApiFloatCoords2D {
+                x: jitter.0,
+                y: jitter.1,
+            },
             motion_vector_scale: FfxApiFloatCoords2D { x: 1.0, y: 1.0 },
             frame_time_delta: frame_time_ms.clamp(0.1, 1000.0),
             reset,
@@ -841,17 +872,29 @@ impl FrameGeneration {
         };
         let rc = unsafe { (self.loader.dispatch)(&mut self.fg_context, &mut prepare.header) };
         let restore = [
-            barrier(&self.depth.resource, D3D12_STATE_PIXEL_COMPUTE_READ, D3D12_STATE_RENDER_TARGET),
-            barrier(&self.mv.resource, D3D12_STATE_PIXEL_COMPUTE_READ, D3D12_STATE_RENDER_TARGET),
+            barrier(
+                &self.depth.resource,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+                D3D12_STATE_RENDER_TARGET,
+            ),
+            barrier(
+                &self.mv.resource,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+                D3D12_STATE_RENDER_TARGET,
+            ),
         ];
         self.list.resource_barrier(&restore);
         let hr = self.list.close();
         if hr < 0 {
-            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"
+            ));
         }
         self.queue.execute_command_lists(&[self.list.as_list()]);
         if rc != super::imp::FFX_API_RETURN_OK {
-            return Err(format!("ffxDispatch frame generation prepare failed (0x{rc:x})"));
+            return Err(format!(
+                "ffxDispatch frame generation prepare failed (0x{rc:x})"
+            ));
         }
         self.prev_view_proj = Some(*unjittered_vp);
         Ok(())
@@ -884,9 +927,13 @@ impl FrameGeneration {
 
         // --- Native copy: composition -> backbuffer.
         self.allocator.reset();
-        let hr = self.list.reset(&self.allocator, d3d12::PipelineState::null());
+        let hr = self
+            .list
+            .reset(&self.allocator, d3d12::PipelineState::null());
         if hr < 0 {
-            return Err(format!("ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"
+            ));
         }
         let barrier = |resource: &d3d12::Resource, before: u32, after: u32| {
             d3d12::ResourceBarrier::transition(
@@ -898,26 +945,34 @@ impl FrameGeneration {
             )
         };
         let barriers = [
-            barrier(&self.compose.resource, D3D12_STATE_RENDER_TARGET, D3D12_STATE_COPY_SRC),
+            barrier(
+                &self.compose.resource,
+                D3D12_STATE_RENDER_TARGET,
+                D3D12_STATE_COPY_SRC,
+            ),
             barrier(&backbuffer, D3D12_STATE_PRESENT, D3D12_STATE_COPY_DEST),
         ];
         self.list.resource_barrier(&barriers);
         // The d3d12 crate has no safe `CopyResource` wrapper, so call the
         // COM method on the underlying raw interface directly.
         unsafe {
-            (*self.list.as_mut_ptr()).CopyResource(
-                backbuffer.as_mut_ptr(),
-                self.compose.resource.as_mut_ptr(),
-            );
+            (*self.list.as_mut_ptr())
+                .CopyResource(backbuffer.as_mut_ptr(), self.compose.resource.as_mut_ptr());
         }
         let restore = [
-            barrier(&self.compose.resource, D3D12_STATE_COPY_SRC, D3D12_STATE_RENDER_TARGET),
+            barrier(
+                &self.compose.resource,
+                D3D12_STATE_COPY_SRC,
+                D3D12_STATE_RENDER_TARGET,
+            ),
             barrier(&backbuffer, D3D12_STATE_COPY_DEST, D3D12_STATE_PRESENT),
         ];
         self.list.resource_barrier(&restore);
         let hr = self.list.close();
         if hr < 0 {
-            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"
+            ));
         }
         self.queue.execute_command_lists(&[self.list.as_list()]);
 
@@ -945,7 +1000,8 @@ impl FrameGeneration {
                 0
             },
         };
-        let rc = unsafe { (self.loader.configure)(&mut self.swapchain_context, &mut register.header) };
+        let rc =
+            unsafe { (self.loader.configure)(&mut self.swapchain_context, &mut register.header) };
         if rc != super::imp::FFX_API_RETURN_OK {
             eprintln!("[FSR FG] registering the UI resource failed (0x{rc:x}); UI may be missing from generated frames");
         }
@@ -968,7 +1024,9 @@ impl FrameGeneration {
         };
         let rc = unsafe { (self.loader.query)(&mut self.swapchain_context, &mut query.header) };
         if rc != super::imp::FFX_API_RETURN_OK || interpolation_command_list.is_null() {
-            return Err(format!("querying the interpolation command list failed (0x{rc:x})"));
+            return Err(format!(
+                "querying the interpolation command list failed (0x{rc:x})"
+            ));
         }
         let mut interpolation_texture = FfxApiResource::EMPTY;
         let mut query = FfxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 {
@@ -979,7 +1037,9 @@ impl FrameGeneration {
         };
         let rc = unsafe { (self.loader.query)(&mut self.swapchain_context, &mut query.header) };
         if rc != super::imp::FFX_API_RETURN_OK {
-            return Err(format!("querying the interpolation texture failed (0x{rc:x})"));
+            return Err(format!(
+                "querying the interpolation texture failed (0x{rc:x})"
+            ));
         }
         let present_color = FfxApiResource::texture2d(
             &backbuffer,
@@ -997,7 +1057,12 @@ impl FrameGeneration {
             header: FfxApiHeader::new(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION),
             command_list: interpolation_command_list,
             present_color,
-            outputs: [interpolation_texture, FfxApiResource::EMPTY, FfxApiResource::EMPTY, FfxApiResource::EMPTY],
+            outputs: [
+                interpolation_texture,
+                FfxApiResource::EMPTY,
+                FfxApiResource::EMPTY,
+                FfxApiResource::EMPTY,
+            ],
             num_generated_frames: 1,
             reset,
             backbuffer_transfer_function: FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SRGB,

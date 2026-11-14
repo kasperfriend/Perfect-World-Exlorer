@@ -38,9 +38,11 @@ const FFX_UPSCALE_FLAG_NON_LINEAR_COLOR_SRGB: u32 = 1 << 1;
 pub(crate) const D3D12_STATE_COMMON: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COMMON;
 pub(crate) const D3D12_STATE_COPY_DEST: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COPY_DEST;
 pub(crate) const D3D12_STATE_RENDER_TARGET: u32 = d3d12_ty::D3D12_RESOURCE_STATE_RENDER_TARGET;
-pub(crate) const D3D12_STATE_UNORDERED_ACCESS: u32 = d3d12_ty::D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-pub(crate) const D3D12_STATE_PIXEL_COMPUTE_READ: u32 = d3d12_ty::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
-    | d3d12_ty::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+pub(crate) const D3D12_STATE_UNORDERED_ACCESS: u32 =
+    d3d12_ty::D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+pub(crate) const D3D12_STATE_PIXEL_COMPUTE_READ: u32 =
+    d3d12_ty::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+        | d3d12_ty::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -214,10 +216,14 @@ pub(crate) const FFX_API_RETURN_OK: FfxReturnCode = 0;
 
 pub(crate) type PfnFfxCreateContext =
     unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader, *const c_void) -> FfxReturnCode;
-pub(crate) type PfnFfxDestroyContext = unsafe extern "C" fn(*mut *mut c_void, *const c_void) -> FfxReturnCode;
-pub(crate) type PfnFfxQuery = unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader) -> FfxReturnCode;
-pub(crate) type PfnFfxDispatch = unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
-pub(crate) type PfnFfxConfigure = unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
+pub(crate) type PfnFfxDestroyContext =
+    unsafe extern "C" fn(*mut *mut c_void, *const c_void) -> FfxReturnCode;
+pub(crate) type PfnFfxQuery =
+    unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader) -> FfxReturnCode;
+pub(crate) type PfnFfxDispatch =
+    unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
+pub(crate) type PfnFfxConfigure =
+    unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
 
 extern "C" fn fsr_message_callback(message_type: u32, message: *const u16) {
     if message.is_null() {
@@ -1179,7 +1185,6 @@ impl FsrUpscaler {
             .draw(device, queue, &self.natives.output.texture, target);
     }
 }
-
 
 /// Owned clones of the DX12 device and direct command queue wgpu created,
 /// for code that records its own native command lists against the same GPU.

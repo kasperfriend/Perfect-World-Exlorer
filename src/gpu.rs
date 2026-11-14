@@ -3805,9 +3805,7 @@ fn recreate_surface(
 #[cfg(windows)]
 fn window_hwnd(window: &winit::window::Window) -> Result<*mut std::ffi::c_void, String> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    let handle = window
-        .window_handle()
-        .map_err(|error| error.to_string())?;
+    let handle = window.window_handle().map_err(|error| error.to_string())?;
     match handle.as_raw() {
         RawWindowHandle::Win32(handle) => Ok(handle.hwnd.get() as *mut std::ffi::c_void),
         _ => Err("the window is not a Win32 window".to_string()),
