@@ -3943,7 +3943,7 @@ async fn adapter(
     Ok((a, d, q))
 }
 pub fn run(
-    t: Terrain,
+    mut t: Terrain,
     #[cfg(windows)] loading: Option<crate::windows_setup::LoadingWindow>,
 ) -> Result<(), String> {
     let current_map = t.map.clone();
