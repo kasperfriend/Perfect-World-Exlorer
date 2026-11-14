@@ -2692,12 +2692,7 @@ fn apply_color_offset(color: u32, offset: &[i32; 4]) -> u32 {
 }
 
 /// Run every controller of the active keypoint for one frame.
-fn apply_controls(
-    state: &mut CtrlState,
-    key: &KeyPoint,
-    sampled: &Sampled,
-    dt: f32,
-) {
+fn apply_controls(state: &mut CtrlState, key: &KeyPoint, sampled: &Sampled, dt: f32) {
     if dt <= 0. {
         return;
     }
@@ -8346,11 +8341,7 @@ mod tests {
         for quad in one_long.quads() {
             assert_eq!(quad.color, expected);
         }
-        let matching = many_short
-            .quads()
-            .iter()
-            .filter(|quad| quad.color == expected)
-            .count();
+        let matching = many_short.quads().iter().filter(|q| q.color == expected).count();
         assert!(
             matching >= 2,
             "the same-age particles must flicker identically whatever the frame schedule was"
