@@ -173,7 +173,7 @@ impl Page {
 }
 /// Measured residency and resolution outcome of one whole-world preload
 /// (P3.08: measured numbers, not estimates).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct DoneStats {
     pub residency: crate::objects::ResidencyStats,
     pub resolver: crate::texture_resolution::ResolverStats,
