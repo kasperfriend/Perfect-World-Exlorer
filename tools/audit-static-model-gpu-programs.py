@@ -16,6 +16,7 @@ WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
 EXCLUDED = {
     "bloom-gpu-check": "post-processing glow chain, not a static-model pipeline",
     "display-gamma-gpu-check": "display gamma ramp, not a static-model pipeline",
+    "fsr1-gpu-check": "FSR 1 world-image upscaling and presentation, not a static-model pipeline",
     "post-gpu-check": "fullscreen post chain, not a static-model pipeline",
     "model-draw-gpu-check": "animated/world EC model instance pipeline, not static BMD scenery",
     "model-light-gpu-check": "standalone animated model light helper",
