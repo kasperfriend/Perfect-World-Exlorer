@@ -2828,9 +2828,11 @@ fn apply_controls(
                 // holds the shared generator and does nothing in `Process`.
                 // `A3DGFXCtrlColorNoise` (107) writes a colour whose RGB come
                 // from `BaseColor` with the alpha driven by the noise. The
-                // Perlin walk itself (`APerlinNoise1D`) is still to be pinned
-                // against this fbm (D5), so the sample is normalized to
-                // [-1, 1] and scaled by the authored `Amplitude`.
+                // Perlin walk's own range is verified now:
+                // `APerlinNoiseBase::RandFloat` is
+                // `(RandInteger() % 2001 - 1000) / 1000` — a uniform in
+                // [-1, 1] exactly — so the sample is used as-is and scaled by
+                // the authored `Amplitude`.
                 if matches!(kind, NoiseKind::Base) {
                     continue;
                 }

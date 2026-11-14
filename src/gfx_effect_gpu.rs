@@ -949,6 +949,19 @@ mod tests {
         png
     }
 
+    fn white_png() -> Vec<u8> {
+        let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            1,
+            1,
+            image::Rgba([255, 255, 255, 255]),
+        ));
+        let mut png = Vec::new();
+        image
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        png
+    }
+
     struct Harness {
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -1008,6 +1021,17 @@ mod tests {
     ) -> [f32; 4] {
         let png = grey_png();
         let mut read = |_: &str| Ok(png.clone());
+        render_with(draw, harness, background, quads, light, &mut read)
+    }
+
+    fn render_with(
+        draw: &mut Draw,
+        harness: &Harness,
+        background: f64,
+        quads: &[EffectQuad],
+        light: Option<EffectLight>,
+        read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> [f32; 4] {
         draw.update(
             &harness.device,
             &harness.queue,
@@ -1016,7 +1040,7 @@ mod tests {
             [0.; 4],
             [0., 0., 0., 100.],
             light,
-            &mut read,
+            read,
         )
         .unwrap();
         let view = harness.target.create_view(&Default::default());
@@ -1482,6 +1506,58 @@ mod tests {
         assert!(
             pixel[0] < 0.1,
             "the left-edge pixel must be near black through interpolation: {pixel:?}"
+        );
+    }
+
+    /// The white fallback must render the same pixel as an explicit 1x1 white
+    /// texture: the client's NOTEX placeholder IS a white sheet
+    /// (`A3DGFXTexMan::LoadTextureFromFile` failure path binds one), so a
+    /// bucket whose texture failed and a bucket bound to white cannot be told
+    /// apart on screen. Only a rendered-pixel comparison proves that.
+    #[test]
+    fn a_failed_texture_renders_the_same_pixel_as_white() {
+        let Some(harness) = harness() else {
+            eprintln!("effect fallback test skipped: no WGPU adapter");
+            return;
+        };
+        let mut draw = Draw::new(
+            &harness.device,
+            &harness.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+        )
+        .unwrap();
+        let tint = [1., 0.5, 0.25, 1.];
+        let missing = quad("missing.png", 5, 2, 0, false, tint);
+        let mut fail = |_: &str| Err("no such texture".to_string());
+        let fallback = render_with(
+            &mut draw,
+            &harness,
+            0.,
+            std::slice::from_ref(&missing),
+            None,
+            &mut fail,
+        );
+        let explicit = quad("white.png", 5, 2, 0, false, tint);
+        let white = white_png();
+        let mut found = move |_: &str| Ok(white.clone());
+        let bound = render_with(
+            &mut draw,
+            &harness,
+            0.,
+            std::slice::from_ref(&explicit),
+            None,
+            &mut found,
+        );
+        for channel in 0..4 {
+            assert!(
+                (fallback[channel] - bound[channel]).abs() < 2. / 255.,
+                "channel {channel}: failed {fallback:?} vs white {bound:?}"
+            );
+        }
+        assert!(
+            fallback[0] > 0.95 && fallback[1] > 0.45 && fallback[2] > 0.2,
+            "the fallback renders the tint through white: {fallback:?}"
         );
     }
 
