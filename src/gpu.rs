@@ -1008,7 +1008,9 @@ fn build(
             };
             if crate::objects::SdrUvAnim::from_texture_path(&mesh.texture)
                 .is_some_and(|a| a.tc_scroll[1] < 0.0)
-            { kind += 0.02; }
+            {
+                kind += 0.02;
+            }
             let page = &mut pages[page_id].1;
             let base = page.vertices.len() as u32;
             let range_start = page.indices.len() as u32;

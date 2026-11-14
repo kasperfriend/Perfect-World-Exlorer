@@ -400,7 +400,9 @@ fn run(
                 };
                 if crate::objects::SdrUvAnim::from_texture_path(&mesh.texture)
                     .is_some_and(|a| a.tc_scroll[1] < 0.0)
-                { kind += 0.02; }
+                {
+                    kind += 0.02;
+                }
                 // Content-keyed slot sharing (P3.08 cross-name dedup):
                 // references with identical pixels collapse onto one atlas
                 // slot regardless of how many names point at them.
