@@ -18,10 +18,15 @@ pub fn extract(root: &Path, out: &Path) -> Result<(), String> {
     } else {
         root.to_path_buf()
     };
+    extract_for_scene(&element, &element.join("maps/world/world.ecwld"), out)
+}
+
+/// Extract the tree assets referenced by one selected map's ECWLD.
+pub fn extract_for_scene(element: &Path, scene_path: &Path, out: &Path) -> Result<(), String> {
     if out.exists() {
         return Err("output path already exists; choose a new directory".into());
     }
-    let scene = scene::Scene::load(&element.join("maps/world/world.ecwld"))?;
+    let scene = scene::Scene::load(scene_path)?;
     let mut pkg = File::open(element.join("trees.pck")).map_err(|e| e.to_string())?;
     let entries: HashMap<_, _> = pck::directory(&mut pkg)?
         .into_iter()

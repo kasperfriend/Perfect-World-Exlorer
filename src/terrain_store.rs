@@ -653,6 +653,13 @@ fn safe_name(name: &str) -> bool {
 pub fn source_identity(header: &[u8], dir: &Path, names: &[String]) -> Result<String, String> {
     let mut hash = Sha256::new();
     hash.update(b"PWTSRC01");
+    // Two instance maps can share a TRN2 header and subterrain names. The map
+    // folder keeps their warm-start caches separate even when those bytes are
+    // identical.
+    if let Some(map) = dir.file_name().and_then(|name| name.to_str()) {
+        hash.update((map.len() as u64).to_le_bytes());
+        hash.update(map.as_bytes());
+    }
     hash.update((header.len() as u64).to_le_bytes());
     hash.update(header);
     for name in names {

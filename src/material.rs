@@ -3,9 +3,10 @@
 use crate::{f32at, pck, u32at};
 use flate2::read::ZlibDecoder;
 use std::{
+    ffi::OsStr,
     fs::{self, File},
     io::Read,
-    path::Path,
+    path::{Path, PathBuf},
 };
 pub(crate) struct Texture {
     pub(crate) w: usize,
@@ -174,7 +175,19 @@ impl Materials {
         for _ in 0..count {
             paths.push(gbk_string(trn, &mut pos)?)
         }
-        let element = dir.parent().and_then(Path::parent).ok_or("bad map path")?;
+        // `maps/<id>` is normally under `element`, but a direct map-directory
+        // argument has only its own parent as the shared-archive folder.
+        let element: PathBuf = dir
+            .parent()
+            .map(|maps| {
+                if maps.file_name() == Some(OsStr::new("maps")) {
+                    maps.parent().unwrap_or(maps)
+                } else {
+                    maps
+                }
+            })
+            .ok_or("bad map path")?
+            .to_path_buf();
         let mut file =
             File::open(element.join("textures.pck")).map_err(|e| format!("textures.pck: {e}"))?;
         let entries = if colors {
