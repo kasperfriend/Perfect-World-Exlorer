@@ -309,6 +309,16 @@ pub fn prepare_trees_for_scene(
 // Show a small native loading window while terrain and the first-run tree cache
 // are prepared. Its message pump lives on a separate thread from disk loading.
 #[repr(C)]
+struct InitCommonControls {
+    size: u32,
+    classes: u32,
+}
+#[link(name = "comctl32")]
+extern "system" {
+    fn InitCommonControlsEx(info: *const InitCommonControls) -> i32;
+}
+
+#[repr(C)]
 struct WinMessage {
     hwnd: Hwnd,
     message: u32,
@@ -372,17 +382,21 @@ impl LoadingWindow {
             *guard = Some(status_tx);
         }
         let thread = std::thread::spawn(move || unsafe {
+            let _ = InitCommonControlsEx(&InitCommonControls {
+                size: std::mem::size_of::<InitCommonControls>() as u32,
+                classes: 0x20, // ICC_PROGRESS_CLASS
+            });
             let class = wide("STATIC");
-            let text = wide("Perfect World Explorer — Loading");
+            let text = wide("Perfect World Explorer — Loading world");
             let hwnd = CreateWindowExW(
-                0,
+                0x00000008, // WS_EX_TOPMOST while the world is prepared
                 class.as_ptr(),
                 text.as_ptr(),
                 0x00c00000 | 0x10000000,
                 0x80000000u32 as i32,
                 0x80000000u32 as i32,
-                540,
-                160,
+                620,
+                220,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
@@ -391,30 +405,58 @@ impl LoadingWindow {
             let label = if hwnd.is_null() {
                 std::ptr::null_mut()
             } else {
+                let instance = GetModuleHandleW(std::ptr::null());
+                control(
+                    hwnd,
+                    instance,
+                    "STATIC",
+                    "LOADING WORLD",
+                    0x50000000 | 0x00000001,
+                    26,
+                    20,
+                    560,
+                    26,
+                    0,
+                );
                 let h = control(
                     hwnd,
-                    GetModuleHandleW(std::ptr::null()),
+                    instance,
                     "STATIC",
-                    "Loading the world...",
+                    "Preparing the world...",
                     0x50000000,
-                    24,
-                    22,
-                    480,
-                    25,
+                    26,
+                    62,
+                    560,
+                    26,
                     0,
                 );
                 control(
                     hwnd,
-                    GetModuleHandleW(std::ptr::null()),
+                    instance,
                     "STATIC",
-                    "First launch may take several minutes while trees are prepared.",
+                    "Loading terrain, scenery, water and client assets. Large maps can take longer.",
                     0x50000000,
-                    24,
-                    55,
-                    480,
+                    26,
+                    96,
+                    560,
                     25,
                     0,
                 );
+                let progress = control(
+                    hwnd,
+                    instance,
+                    "msctls_progress32",
+                    "",
+                    0x50000000,
+                    26,
+                    138,
+                    560,
+                    18,
+                    0,
+                );
+                if !progress.is_null() {
+                    SendMessageW(progress, 0x400 + 10, 1, 45); // PBM_SETMARQUEE
+                }
                 ShowWindow(hwnd, 5);
                 UpdateWindow(hwnd);
                 h

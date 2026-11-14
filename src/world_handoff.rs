@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     process::{Child, Command},
     sync::mpsc::Sender,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const READY_ENV: &str = "PWE_WORLD_HANDOFF_READY_FILE";
@@ -44,6 +44,7 @@ impl Files {
             .name("world-handoff".into())
             .spawn(move || {
                 let mut previous = String::new();
+                let started = Instant::now();
                 loop {
                     if let Ok(status) = fs::read_to_string(&self.status) {
                         if status != previous {
@@ -55,6 +56,17 @@ impl Files {
                         let _ = fs::remove_file(&self.ready);
                         let _ = fs::remove_file(&self.status);
                         let _ = tx.send(Message::Ready);
+                        return;
+                    }
+                    // Never leave the original window on an unbounded loading
+                    // overlay if a graphics driver or child event loop stalls.
+                    if started.elapsed() >= Duration::from_secs(20 * 60) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        let _ = fs::remove_file(&self.status);
+                        let _ = tx.send(Message::Failed(
+                            "The new world did not become ready within 20 minutes.".into(),
+                        ));
                         return;
                     }
                     match child.try_wait() {

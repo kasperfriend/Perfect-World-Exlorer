@@ -4003,7 +4003,10 @@ pub fn run(
     let mut world_audio = crate::world_audio::WorldAudio::new(&t.element, &t.scene);
     #[cfg(windows)]
     drop(loading);
-    window.set_visible(!crate::world_handoff::is_handoff_child());
+    // The handoff parent remains visible with its loading overlay. The child
+    // must have a real visible swapchain so Winit/Windows will deliver its
+    // first redraw; hidden native windows can defer redraw indefinitely.
+    window.set_visible(true);
     let water_areas = t.water.clone();
     let environments = t.environments.clone();
     let mut fog_transition =
@@ -4857,12 +4860,6 @@ pub fn run(
                                     &surface_view,
                                     frame_gamma_setting,
                                 );
-                            }
-                            if !handoff_ready_signaled {
-                                // Keep the replacement's native window hidden
-                                // until its first complete frame is ready; the
-                                // old window remains visible with the loading UI.
-                                window.set_visible(true);
                             }
                             frame.present();
                             if !handoff_ready_signaled {
