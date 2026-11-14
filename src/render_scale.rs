@@ -1,11 +1,11 @@
-//! Internal render-resolution scaling (Graphics tab → "Resolution scale").
+//! Internal render-resolution scaling (Graphics tab -> "Resolution scale").
 //!
 //! The 3D world is drawn into an offscreen target whose size is the window
-//! extent multiplied by the chosen percentage (10–200%), then bilinearly
-//! blitted into the full-resolution composition view (`scene_view`). The egui
-//! UI, the display-gamma ramp and the UNORM present-encode pass stay at native
-//! resolution, so menus, minimap and text remain sharp while the expensive
-//! terrain/water/scenery/post passes scale with the setting.
+//! extent multiplied by the chosen percentage (10-200%). The original
+//! bilinear present remains the default; at 50-99%, users can instead select
+//! the AMD FSR 1 spatial EASU + RCAS pass. These consume the same finished world
+//! image, before egui. The UI, display-gamma ramp and UNORM present-encode
+//! pass stay at native resolution, so menus, minimap and text remain sharp.
 //!
 //! The offscreen target uses the renderer's sRGB `format` plus a linear (raw)
 //! alternate view, exactly like the swapchain/composition intermediates. The
@@ -18,9 +18,9 @@
 
 /// Scale a window extent by a percentage and clamp to device limits.
 ///
-/// `percent` is the persisted 10–200 value (100 = native). Out-of-range inputs
-/// are clamped to 10–200 before use, and each dimension to
-/// `[1, max_dimension]` — a 200% scale on a large window can otherwise exceed
+/// `percent` is the persisted 10-200 value (100 = native). Out-of-range inputs
+/// are clamped to 10-200 before use, and each dimension to
+/// `[1, max_dimension]` - a 200% scale on a large window can otherwise exceed
 /// `max_texture_dimension_2d`.
 pub fn scaled_extent(w: u32, h: u32, percent: f32, max_dimension: u32) -> (u32, u32) {
     let raw = f64::from(percent) / 100.0;
@@ -42,14 +42,14 @@ const SHADER: &str = r#"
 @group(0) @binding(1) var samp:sampler;
 struct VOut { @builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32> };
 @vertex fn vs(@builtin(vertex_index) id:u32)->VOut {
- var o:VOut;
- let x=f32((id<<1u)&2u);let y=f32(id&2u);
- o.pos=vec4<f32>(x*2.-1.,1.-y*2.,0.,1.);
- o.uv=vec2<f32>(x,y);
- return o;
+  var o:VOut;
+  let x=f32((id<<1u)&2u);let y=f32(id&2u);
+  o.pos=vec4<f32>(x*2.-1.,1.-y*2.,0.,1.);
+  o.uv=vec2<f32>(x,y);
+  return o;
 }
 @fragment fn fs(i:VOut)->@location(0) vec4<f32> {
- return vec4<f32>(textureSample(frame,samp,i.uv).rgb,1.);
+  return vec4<f32>(textureSample(frame,samp,i.uv).rgb,1.);
 }
 "#;
 
@@ -76,17 +76,27 @@ fn target_texture(
     })
 }
 
-/// Offscreen world target plus the fullscreen bilinear upscale pipeline.
+/// Offscreen world target, original bilinear blit and an optional FSR 1 pass.
 pub struct RenderScale {
     format: wgpu::TextureFormat,
     frame: wgpu::Texture,
+    input_extent: (u32, u32),
+    output_extent: (u32, u32),
+    fsr1: Option<crate::fsr1_gpu::Fsr1Gpu>,
     sampler: wgpu::Sampler,
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
 }
 
 impl RenderScale {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, w: u32, h: u32) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        w: u32,
+        h: u32,
+        output_w: u32,
+        output_h: u32,
+    ) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("resolution scale layout"),
             entries: &[
@@ -150,16 +160,29 @@ impl RenderScale {
         Self {
             format,
             frame: target_texture(device, format, w, h),
+            input_extent: (w, h),
+            output_extent: (output_w, output_h),
+            fsr1: None,
             sampler,
             pipeline,
             layout,
         }
     }
 
-    /// Reallocate the offscreen target when the window or the scale changes.
-    /// The pipeline, layout and sampler are size-independent and are reused.
-    pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32) {
-        self.frame = target_texture(device, self.format, w, h);
+    /// Only the resources whose extents changed are reallocated. In particular,
+    /// a window resize can change the FSR output even when rounding leaves the
+    /// scaled input unchanged. The optional FSR texture is created on first use.
+    pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32, output_w: u32, output_h: u32) {
+        if self.input_extent != (w, h) {
+            self.frame = target_texture(device, self.format, w, h);
+            self.input_extent = (w, h);
+        }
+        if self.output_extent != (output_w, output_h) {
+            self.output_extent = (output_w, output_h);
+            if let Some(fsr1) = &mut self.fsr1 {
+                fsr1.resize(device, self.output_extent);
+            }
+        }
     }
 
     /// sRGB view the world is rendered into.
@@ -176,11 +199,36 @@ impl RenderScale {
         })
     }
 
-    /// Bilinearly present the scaled world into the full-resolution composition
-    /// view. Runs after `Renderer::render` and before the UI pass, which loads
-    /// this result with `LoadOp::Load`.
-    pub fn blit(&self, device: &wgpu::Device, queue: &wgpu::Queue, target: &wgpu::TextureView) {
+    /// Present the scaled world into the full-resolution composition view,
+    /// before the UI pass. FSR 1 runs only within its 1-4x area range;
+    /// other scales retain the original bilinear path.
+    pub fn blit(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        target: &wgpu::TextureView,
+        upscaling: crate::upscaling::UpscaleMethod,
+        sharpness_stops: f32,
+    ) {
         let source = self.view();
+        if upscaling == crate::upscaling::UpscaleMethod::Fsr1
+            && crate::upscaling::fsr1_eligible(self.input_extent, self.output_extent)
+        {
+            let size = self.output_extent;
+            let format = self.format;
+            let fsr1 = self
+                .fsr1
+                .get_or_insert_with(|| crate::fsr1_gpu::Fsr1Gpu::new(device, format, size));
+            fsr1.present(
+                device,
+                queue,
+                &source,
+                target,
+                self.input_extent,
+                sharpness_stops,
+            );
+            return;
+        }
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("resolution scale source"),
             layout: &self.layout,
