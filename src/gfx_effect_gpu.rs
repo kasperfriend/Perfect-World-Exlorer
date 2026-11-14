@@ -535,7 +535,10 @@ impl Draw {
                 vertices.push(Vertex {
                     position: quad.positions[slot],
                     uv: quad.uv[slot],
-                    lit: quad.color,
+                    // A grid carries one authored colour per corner and the
+                    // pipeline interpolates it across the cell; every other
+                    // class paints the whole quad with `color`.
+                    lit: quad.vertex_colors.map_or(quad.color, |colors| colors[slot]),
                     directional: [0.; 4],
                     normal: [0.; 3],
                     specular: [0.; 4],
@@ -869,6 +872,7 @@ mod tests {
             positions: [[-1., -1., 0.], [1., -1., 0.], [-1., 1., 0.], [1., 1., 0.]],
             uv: [[0., 0.], [1., 0.], [0., 1.], [1., 1.]],
             color,
+            vertex_colors: None,
             mesh: None,
         }
     }
@@ -892,6 +896,7 @@ mod tests {
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color: [1.; 4],
+            vertex_colors: None,
             mesh: Some(crate::gfx_player::EffectMesh {
                 texture: "a.png".into(),
                 vertices: vec![
@@ -1446,6 +1451,38 @@ mod tests {
             )
             .unwrap_err();
         assert!(error.contains("non-finite"), "{error}");
+    }
+
+    /// A quad that carries per-corner colours must interpolate them across the
+    /// triangle: the effect vertex attribute is the grid's authored `dwColor`
+    /// lattice colour, not one flat tint for the whole cell.
+    #[test]
+    fn quad_vertex_colours_interpolate_across_the_cell() {
+        let Some(harness) = harness() else {
+            eprintln!("effect colour test skipped: no WGPU adapter");
+            return;
+        };
+        let mut draw = Draw::new(
+            &harness.device,
+            &harness.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+        )
+        .unwrap();
+        let mut quad = quad("grey.png", 5, 2, 0, false, [1.; 4]);
+        // Left edge black, right edge white: the left-edge readback pixel is
+        // dark only if the shader interpolates the four tints.
+        quad.vertex_colors = Some([
+            [0., 0., 0., 1.],
+            [1., 1., 1., 1.],
+            [0., 0., 0., 1.],
+            [1., 1., 1., 1.],
+        ]);
+        let pixel = render(&mut draw, &harness, 0., &[quad], None);
+        assert!(
+            pixel[0] < 0.1,
+            "the left-edge pixel must be near black through interpolation: {pixel:?}"
+        );
     }
 
     /// A bucket that bound the placeholder while its texture was missing must

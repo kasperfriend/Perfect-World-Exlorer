@@ -1124,6 +1124,7 @@ mod tests {
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color: [1.; 4],
+            vertex_colors: None,
             mesh: Some(crate::gfx_player::EffectMesh {
                 texture: "a.png".into(),
                 vertices: vec![

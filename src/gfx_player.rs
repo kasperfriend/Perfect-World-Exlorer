@@ -159,6 +159,13 @@ pub struct EffectQuad {
     pub uv: [[f32; 2]; 4],
     /// Linear RGB and alpha, already folded with the root and placement alpha.
     pub color: [f32; 4],
+    /// Per-corner colours for classes that author them (`A3DGridDecalEx`
+    /// writes one `dwColor` per lattice vertex and the pipeline interpolates
+    /// it across the cell). `None` paints the whole quad with `color`; the
+    /// grid sets this and the effect pass feeds each corner its own vertex
+    /// tint, so a foot that fades to transparent fades over the cell instead
+    /// of switching off at a row boundary.
+    pub vertex_colors: Option<[[f32; 4]; 4]>,
     /// Set only for model elements: the mesh is a triangle list rather than the
     /// four corners above, and `positions`/`uv` are left zero.
     pub mesh: Option<EffectMesh>,
@@ -3679,6 +3686,7 @@ fn push_quad(
         positions,
         uv,
         color,
+        vertex_colors: None,
         mesh: None,
     });
 }
@@ -4811,6 +4819,7 @@ fn emit_model(
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color,
+            vertex_colors: None,
             mesh: Some(EffectMesh {
                 texture: mesh.texture.clone(),
                 vertices: placed,
@@ -5303,20 +5312,42 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
     for row in 0..span_z {
         for col in 0..span_x {
             let index = (row * grid.columns + col) as usize;
-            let Some(value) = grid.colors.get(index) else {
-                continue;
+            let columns = grid.columns as usize;
+            // The four corner colours, corner for corner with the quad's
+            // `positions` order (top-left, top-right, bottom-left,
+            // bottom-right). Each is the vertex colour *times* the keypoint
+            // colour, exactly as `_setColorComposed` composes it; using the
+            // vertex colour alone dropped the tint every artist applies
+            // through the keypoint and left white sheets where the client
+            // draws cyan water. `A3DGridDecalEx` gives every lattice vertex
+            // its own `dwColor` and the pipeline interpolates it across the
+            // cell, so a foot that fades out fades over the quad instead of
+            // switching off at a row boundary. Only a cell whose four corners
+            // are all below the cutoff is dropped — a transparent corner next
+            // to an opaque one still draws its half of the fade.
+            let corner_color = |offset: usize| -> Option<[f32; 4]> {
+                let value = grid.colors.get(index + offset)?;
+                Some(grid_rgba(*value, context.color, context.color_scale))
             };
-            // One flat colour per quad: the corner with the lowest index wins.
-            // A vertex that fades to transparent therefore still draws while
-            // any of its neighbours is opaque, which keeps the top of a curtain
-            // solid and stops only the fully transparent foot. The quad colour
-            // is the vertex colour *times* the keypoint colour, exactly as
-            // `_setColorComposed` composes it; using the vertex colour alone
-            // dropped the tint every artist applies through the keypoint and
-            // left white sheets where the client draws cyan water.
-            let color = grid_rgba(*value, context.color, context.color_scale);
-            if color[3] < ALPHA_CUTOFF {
+            let vertex_colors = match (
+                corner_color(0),
+                corner_color(1),
+                corner_color(columns),
+                corner_color(columns + 1),
+            ) {
+                (Some(a), Some(b), Some(c), Some(d)) => [a, b, c, d],
+                _ => continue,
+            };
+            if vertex_colors.iter().all(|corner| corner[3] < ALPHA_CUTOFF) {
                 continue;
+            }
+            // The flat `color` is the brightest corner: what single-colour
+            // consumers see, and the value the cutoff funnel accepts.
+            let mut color = vertex_colors[0];
+            for corner in vertex_colors {
+                if corner[3] > color[3] {
+                    color = corner;
+                }
             }
             let corners = if authored {
                 let columns = grid.columns as usize;
@@ -5343,7 +5374,11 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
             let va = v_start + v_span * row as f32 / span_z as f32;
             let vb = v_start + v_span * (row + 1) as f32 / span_z as f32;
             let uv = [[ua, va], [ub, va], [ua, vb], [ub, vb]];
+            let start = out.len();
             push_quad(out, context, &texture, positions, uv, color);
+            if out.len() > start {
+                out[start].vertex_colors = Some(vertex_colors);
+            }
         }
     }
 }
@@ -7632,6 +7667,50 @@ mod tests {
         // The tint has to be visibly darker than the vertex colour, otherwise
         // this test would pass on a reader that still drops the keypoint.
         assert!(color[1] < 0.3, "the keypoint tint never reached the sheet");
+    }
+
+    /// A grid cell carries the four authored corner colours and the pipeline
+    /// interpolates them across the cell: `A3DGridDecalEx` gives every lattice
+    /// vertex its own `dwColor`, so a transparent corner fades its half of the
+    /// quad instead of switching the cell off. Only a cell whose four corners
+    /// are all below the cutoff is dropped.
+    #[test]
+    fn a_grid_cell_draws_with_one_transparent_corner() {
+        let grid = "GFXELEMENTID: 210\nName: foot\nSrcBlend: 5\nDestBlend: 2\n\
+                    TexFile: 物体\\waterfall.dds\nTexRow: 1\nTexCol: 1\n\
+                    TileMode: 1\nTexSpeed: 0\nwNumber: 2\nhNumber: 2\n\
+                    0.000000 10.000000 0.000000\ndwColor: ffffffff\n\
+                    2.000000 10.000000 0.000000\ndwColor: ffffffff\n\
+                    0.000000 0.000000 0.000000\ndwColor: 00ffffff\n\
+                    2.000000 0.000000 0.000000\ndwColor: ffffffff\n\
+                    fGridSize: 0.500000\nfZOffset: 0.000000\n\
+                    StartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\n\
+                    TimeSpan: -1\nPosition: 0.000000, 0.000000, 0.000000\n\
+                    Color: -1\nScale: 1.000000\n\
+                    Direction: 0.000000, 0.000000, 0.000000, 1.000000\n\
+                    Rad_2D: 0.000000\nCtrlMethodCount: 0\n";
+        let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
+        let mut player = build(&(header + grid));
+        step(&mut player, 0.);
+        let quads = player.quads().to_vec();
+        assert_eq!(
+            quads.len(),
+            1,
+            "the cell must draw: a transparent corner fades it, never drops it"
+        );
+        let corners = quads[0]
+            .vertex_colors
+            .expect("a grid carries per-corner colours");
+        assert!(corners[0][3] > 0.99, "the opaque corner draws: {corners:?}");
+        assert!(
+            corners[2][3] < 0.01,
+            "the authored transparent corner stays transparent: {corners:?}"
+        );
+        assert!(
+            quads[0].color[3] > 0.99,
+            "the flat colour is the brightest corner: {:?}",
+            quads[0].color
+        );
     }
 
     /// `A3DGridDecalEx::_setUVCoord` spreads **one** texture rect across the
