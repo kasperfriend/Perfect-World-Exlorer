@@ -2083,7 +2083,6 @@ impl Player {
                 parent,
                 color_scale,
                 [self.root.aabb_center, self.root.aabb_half],
-                &mut rng,
                 &mut stats,
                 &mut out,
                 model_instance,
@@ -2250,7 +2249,6 @@ fn advance_element(
     color_scale: f32,
     // The root's `Vec:` pair, which element 190 uses as its span endpoints.
     span: [Vec3; 2],
-    rng: &mut Rng,
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
     // This element's model instance, when it is an element-160 record. It owns
@@ -2326,7 +2324,7 @@ fn advance_element(
     // with `TimeSpan: -1` (see §59), so this line changes nothing a shipped file
     // can reach today; it is the client's condition either way.
     if key.interpolate_mode == 0 {
-        apply_controls(&mut runtime.state, key, &sampled, dt_s, rng);
+        apply_controls(&mut runtime.state, key, &sampled, dt_s);
     }
 
     let scale = runtime
@@ -2700,7 +2698,6 @@ fn apply_controls(
     key: &KeyPoint,
     sampled: &Sampled,
     dt: f32,
-    rng: &mut Rng,
 ) {
     if dt <= 0. {
         return;
@@ -2825,10 +2822,11 @@ fn apply_controls(
                 // `A3DGFXCtrlScaleNoise` (109) writes `PROC_DATA::m_fScaleNoise`,
                 // which the keypoint read adds to the output scale; the noise
                 // is not a position jitter at all. `A3DGFXCtrlNoiseBase` (112)
-                // holds the shared generator and does nothing in `Process`.
-                // `A3DGFXCtrlColorNoise` (107) writes a colour whose RGB come
-                // from `BaseColor` with the alpha driven by the noise. The
-                // Perlin walk's own range is verified now:
+                // holds the shared generator and does nothing in `Process`
+                // (its body is empty, a3dgfxkeypoint.h:1696). `A3DGFXCtrlColorNoise`
+                // (107) writes a colour whose RGB come from `BaseColor` with
+                // the alpha driven by the noise.
+                // The Perlin walk's own range is verified now:
                 // `APerlinNoiseBase::RandFloat` is
                 // `(RandInteger() % 2001 - 1000) / 1000` — a uniform in
                 // [-1, 1] exactly — so the sample is used as-is and scaled by
@@ -2837,11 +2835,21 @@ fn apply_controls(
                     continue;
                 }
                 let sample = fbm(
-                    rng.next_u32(),
+                    noise_seed(
+                        *kind,
+                        *amplitude,
+                        *wave_length,
+                        *persistence,
+                        *octaves,
+                        *buffer_length,
+                        *base_color,
+                    ),
                     // The noise walk runs on the keypoint clock in
-                    // milliseconds, the same `m_fTimeSpan * 1000` table index
-                    // `A3DGFXCtrlClTrans` uses; the authored `WaveLen: 100` on
-                    // corpus controllers is a 100 ms wavelength.
+                    // milliseconds: `m_PerlinNoise.GetValue(ProcData.m_fTimeSpan
+                    // * 1000.f, &fNoise, 1)` in both `Process` bodies
+                    // (A3DGFXKeyPoint.cpp:1094, :1154). The authored
+                    // `WaveLen: 100` on corpus controllers is a 100 ms
+                    // wavelength.
                     age * 1000.,
                     *wave_length,
                     *persistence,
@@ -2854,22 +2862,29 @@ fn apply_controls(
                         state.scale_noise = *amplitude * signed;
                     }
                     NoiseKind::Color => {
-                        // `BaseColor: -1` (all bits set) means "no base
-                        // authored", so the flicker is over the keypoint
-                        // colour. The depth is the authored `Amplitude` in
-                        // channel bytes; the client's exact scaling is in the
-                        // unread `Process` body (best-approach call).
-                        let base = match base_color {
-                            Some(0xff_ff_ff_ff) | None => sampled.color,
-                            Some(color) => *color,
-                        };
-                        let mut packed = 0u32;
-                        for shift in [0u32, 8, 16, 24] {
-                            let channel = (((base >> shift) & 0xff) as f32 + *amplitude * signed)
-                                .clamp(0., 255.) as u32;
-                            packed |= channel << shift;
-                        }
-                        state.color_override = Some(packed);
+                        // `A3DGFXCtrlColorNoise::Process`
+                        // (A3DGFXKeyPoint.cpp:1088-1105) moves ONE byte:
+                        //
+                        //     static const A3DCOLOR cMask = A3DCOLORRGBA(255,255,255,0);
+                        //     BYTE c = A3DCOLOR_GETALPHA(m_clBase);
+                        //     int dc = (int)fNoise;
+                        //     ... clamp c+dc to [0, 255] ...
+                        //     m_color = (m_clBase & cMask) + A3DCOLORRGBA(0,0,0,c);
+                        //
+                        // The RGB bytes stay `m_clBase`'s and only the alpha
+                        // byte takes the noise, truncated to integer bytes by
+                        // the `(int)` cast. The base is the authored
+                        // `BaseColor` with no keypoint-colour substitution —
+                        // the class has no `Update` override (the base
+                        // `Update` is empty, a3dgfxkeypoint.h:518) and
+                        // `Process` reads `m_clBase` alone. The amplitude is
+                        // already inside the sample (the perlin's `Init` took
+                        // `m_fAmplitude`), so `dc` is the noise scaled to
+                        // bytes.
+                        let base = base_color.unwrap_or(0xff_ff_ff_ff);
+                        let dc = (*amplitude * signed).trunc() as i32;
+                        let alpha = (((base >> 24) & 0xff) as i32 + dc).clamp(0, 255) as u32;
+                        state.color_override = Some((base & 0x00ff_ffff) | (alpha << 24));
                     }
                     NoiseKind::Base => unreachable!("handled above"),
                 }
@@ -3071,6 +3086,52 @@ fn lightning_filter(kind: u32, dist: f32, value: f32) -> f32 {
         }
         _ => value,
     }
+}
+
+/// A noise controller's perlin field identity, and the reason the walk is a
+/// function of the clock alone.
+///
+/// The client seeds each controller's `APerlinNoise1D` once at `Resume()`
+/// (`m_PerlinNoise.Init(m_nBufLen, m_fAmplitude, m_nWaveLen, m_fPersistence,
+/// m_nOctaveNum, GetTickCount())`, a3dgfxkeypoint.h:1687-1691) and then walks
+/// that SAME field for the rest of the play: `GetValue(m_fTimeSpan * 1000.f,
+/// &fNoise, 1)` (A3DGFXKeyPoint.cpp:1094, :1154) is a smooth function of the
+/// keypoint clock. The seed here is the controller's own authored parameters
+/// rather than a clock sample, because a seed that changes between frames
+/// reshuffles the whole field each frame: the walk degenerates to per-frame
+/// white noise and every noise-driven brightness or scale strobes — the
+/// reported "flicker, as if it is played too fast". Deriving it from the
+/// parameters keeps the field stable across frames, different between
+/// controllers, and independent of the frame schedule (the same clock reached
+/// in few long steps or many short ones samples the same values).
+fn noise_seed(
+    kind: NoiseKind,
+    amplitude: f32,
+    wave_length: f32,
+    persistence: f32,
+    octaves: u32,
+    buffer_length: u32,
+    base_color: Option<u32>,
+) -> u32 {
+    let discriminant = match kind {
+        NoiseKind::Color => 107u32,
+        NoiseKind::Scale => 109,
+        NoiseKind::Base => 112,
+    };
+    let mut mix = 0x9e37_79b9u32;
+    for word in [
+        discriminant,
+        amplitude.to_bits(),
+        wave_length.to_bits(),
+        persistence.to_bits(),
+        octaves,
+        buffer_length,
+        base_color.unwrap_or(0xff_ff_ff_ff),
+    ] {
+        mix = mix.wrapping_add(word).wrapping_mul(0x85eb_ca6b);
+        mix ^= mix >> 13;
+    }
+    mix | 1
 }
 
 fn fbm(
@@ -8227,6 +8288,73 @@ mod tests {
             peak < 2.,
             "the authored amplitude 400 moved the sprite {peak} units; a colour \
              noise must never displace the position"
+        );
+    }
+
+    /// The noise walk is a function of the keypoint clock, never of the frame
+    /// schedule. The client seeds each controller's `APerlinNoise1D` ONCE at
+    /// `Resume()` (`a3dgfxkeypoint.h:1687-1691`) and `GetValue(m_fTimeSpan *
+    /// 1000.f, ...)` walks that one field (A3DGFXKeyPoint.cpp:1094/:1154), so
+    /// the sample at a given clock is the same however the frames were spaced.
+    /// A seed drawn per frame (from the frame rng) reshuffles the whole field
+    /// every frame instead: the flicker becomes 60 Hz white noise — the
+    /// reported "sunrays flicker, as if they are played too fast" — and the
+    /// two schedules below disagree.
+    #[test]
+    fn a_colour_noise_walk_is_the_clock_walk_not_per_frame_noise() {
+        let fractal = "GFXELEMENTID: 121\\r\\nName: dust\\r\\nSrcBlend: 5\\r\\nDestBlend: 2\\r\\nTexFile: 粒子\\\\particle001.dds\\r\\nQuota: -1\\r\\nParticleWidth: 0.4\\r\\nParticleHeight: 0.4\\r\\nEmissionRate: 100\\r\\nSpeed: 0.1\\r\\nTTL: 10\\r\\nColorMin: -1\\r\\nColorMax: -1\\r\\nScaleMin: 0.2\\r\\nScaleMax: 0.1\\r\\nRotMin: 0\\r\\nRotMax: 0\\r\\nIsSurface: 0\\r\\nIsBind: 0\\r\\nAreaSize: 1.0, 1.0, 1.0\\r\\nAffectorCount: 1\\r\\nCtrlType: 107\\r\\nStartTime: 0\\r\\nEndTime: -1\\r\\nBufLen: 256\\r\\nAmplitude: 400\\r\\nWaveLen: 100\\r\\nPersistence: 0.25\\r\\nOctaveNum: 5\\r\\nBaseColor: -1\\r\\nStartTime: 0\\r\\nKEYPOINTCOUNT: 1\\r\\nInterpolateMode: 0\\r\\nTimeSpan: -1\\r\\nPosition: 0, 0, 0\\r\\nColor: -1\\r\\nScale: 1\\r\\nDirection: 0, 0, 0, 1\\r\\nRad_2D: 0\\r\\nCtrlMethodCount: 0\\r\\n";
+        let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
+        let mut one_long = build(&(header.clone() + fractal));
+        let mut many_short = build(&(header + fractal));
+        step(&mut one_long, 100.);
+        for _ in 0..5 {
+            step(&mut many_short, 20.);
+        }
+        let long = one_long
+            .quads()
+            .first()
+            .unwrap_or_else(|| panic!("no particle drew at 100 ms"));
+        let short = many_short
+            .quads()
+            .first()
+            .unwrap_or_else(|| panic!("no particle drew at 100 ms"));
+        assert_eq!(
+            long.color, short.color,
+            "the noise sampled at the same 100 ms clock must not depend on \
+             whether the frame schedule was 1x100 ms or 5x20 ms"
+        );
+    }
+
+    /// Controller 107 flickers ONE byte. `A3DGFXCtrlColorNoise::Process`
+    /// (A3DGFXKeyPoint.cpp:1088-1105) masks the RGB bytes from `m_clBase`
+    /// untouched and writes only the alpha:
+    /// `m_color = (m_clBase & A3DCOLORRGBA(255,255,255,0)) + A3DCOLORRGBA(0,0,0,c)`.
+    /// The earlier implementation added the noise to all four channels, which
+    /// strobed the hue as well as the brightness of every noise-lit effect.
+    #[test]
+    fn a_colour_noise_keeps_the_base_rgb_and_flickers_the_alpha_byte() {
+        // BaseColor: -16776961 = 0xFF00FF00 — green, opaque (the client's
+        // `BaseColor` is the base as authored; there is no keypoint-colour
+        // substitution in the class).
+        let fractal = "GFXELEMENTID: 121\\r\\nName: dust\\r\\nSrcBlend: 5\\r\\nDestBlend: 2\\r\\nTexFile: 粒子\\\\particle001.dds\\r\\nQuota: -1\\r\\nParticleWidth: 0.4\\r\\nParticleHeight: 0.4\\r\\nEmissionRate: 100\\r\\nSpeed: 0.1\\r\\nTTL: 10\\r\\nColorMin: -1\\r\\nColorMax: -1\\r\\nScaleMin: 0.2\\r\\nScaleMax: 0.1\\r\\nRotMin: 0\\r\\nRotMax: 0\\r\\nIsSurface: 0\\r\\nIsBind: 0\\r\\nAreaSize: 1.0, 1.0, 1.0\\r\\nAffectorCount: 1\\r\\nCtrlType: 107\\r\\nStartTime: 0\\r\\nEndTime: -1\\r\\nBufLen: 256\\r\\nAmplitude: 200\\r\\nWaveLen: 100\\r\\nPersistence: 0.25\\r\\nOctaveNum: 5\\r\\nBaseColor: -16776961\\r\\nStartTime: 0\\r\\nKEYPOINTCOUNT: 1\\r\\nInterpolateMode: 0\\r\\nTimeSpan: -1\\r\\nPosition: 0, 0, 0\\r\\nColor: -1\\r\\nScale: 1\\r\\nDirection: 0, 0, 0, 1\\r\\nRad_2D: 0\\r\\nCtrlMethodCount: 0\\r\\n";
+        let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
+        let mut player = build(&(header + fractal));
+        let mut alphas = std::collections::BTreeSet::new();
+        for _ in 0..40 {
+            step(&mut player, 33.);
+            for quad in player.quads() {
+                assert!(
+                    quad.color[0] < 0.01 && quad.color[1] > 0.99 && quad.color[2] < 0.01,
+                    "107 changed the RGB bytes: {:?} — the client keeps \
+                     BaseColor's RGB and flickers the alpha alone",
+                    quad.color
+                );
+                alphas.insert((quad.color[3] * 255.) as u8);
+            }
+        }
+        assert!(
+            alphas.len() > 1,
+            "the alpha byte never moved; 107 must flicker it"
         );
     }
 
