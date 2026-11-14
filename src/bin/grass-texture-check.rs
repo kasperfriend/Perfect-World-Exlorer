@@ -3,6 +3,8 @@
 mod dxt;
 #[path = "../grass.rs"]
 mod grass;
+#[path = "../loading_workers.rs"]
+mod loading_workers;
 #[path = "../model_dds.rs"]
 mod model_dds;
 #[path = "../pck.rs"]
@@ -11,8 +13,6 @@ mod pck;
 mod scene;
 #[path = "../vegetation_textures.rs"]
 mod vegetation_textures;
-#[path = "../loading_workers.rs"]
-mod loading_workers;
 #[path = "../water.rs"]
 mod water;
 fn main() {

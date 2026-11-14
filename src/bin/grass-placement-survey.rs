@@ -1,13 +1,13 @@
 //! Audit real EC-BSD patches and one BSData file, without a complete client.
 #![allow(dead_code)]
+#[path = "../loading_workers.rs"]
+mod loading_workers;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../grass_random.rs"]
 mod random;
 #[path = "../scene.rs"]
 mod scene;
-#[path = "../loading_workers.rs"]
-mod loading_workers;
 #[path = "../water.rs"]
 mod water;
 use std::{

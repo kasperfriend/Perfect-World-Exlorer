@@ -733,72 +733,74 @@ pub fn load_sequences(
         .max(1);
     let next = AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::sync_channel(workers * 2);
-    let decoded = std::thread::scope(|scope| -> Result<Vec<Result<Vec<image::RgbaImage>, String>>, String> {
-        for _ in 0..workers {
-            let tx = tx.clone();
-            let jobs = &jobs;
-            let archive = &archive;
-            let next = &next;
-            scope.spawn(move || {
-                let mut file = File::open(archive);
-                loop {
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some((name, entry, normal)) = jobs.get(index) else {
-                        break;
-                    };
-                    let result = {
-                        let _permit = crate::loading_workers::acquire();
-                        match &mut file {
-                            Ok(file) => crate::pck::read_entry(file, entry)
-                                .map_err(|e| format!("{name}: {e}"))
-                                .and_then(|raw| {
-                                    if *normal {
-                                        match decode_water_dds_mips(&raw) {
-                                            Ok(levels) => Ok(levels),
-                                            Err(err) => {
-                                                // Retail tolerates a broken authored lower normal mip:
-                                                // retry the same base image with only that flag cleared.
-                                                let mut base = raw;
-                                                if base.len() >= 12 {
-                                                    let flags = u32::from_le_bytes(
-                                                        base[8..12].try_into().unwrap(),
-                                                    ) & !0x20000;
-                                                    base[8..12]
-                                                        .copy_from_slice(&flags.to_le_bytes());
+    let decoded = std::thread::scope(
+        |scope| -> Result<Vec<Result<Vec<image::RgbaImage>, String>>, String> {
+            for _ in 0..workers {
+                let tx = tx.clone();
+                let jobs = &jobs;
+                let archive = &archive;
+                let next = &next;
+                scope.spawn(move || {
+                    let mut file = File::open(archive);
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some((name, entry, normal)) = jobs.get(index) else {
+                            break;
+                        };
+                        let result = {
+                            let _permit = crate::loading_workers::acquire();
+                            match &mut file {
+                                Ok(file) => crate::pck::read_entry(file, entry)
+                                    .map_err(|e| format!("{name}: {e}"))
+                                    .and_then(|raw| {
+                                        if *normal {
+                                            match decode_water_dds_mips(&raw) {
+                                                Ok(levels) => Ok(levels),
+                                                Err(err) => {
+                                                    // Retail tolerates a broken authored lower normal mip:
+                                                    // retry the same base image with only that flag cleared.
+                                                    let mut base = raw;
+                                                    if base.len() >= 12 {
+                                                        let flags = u32::from_le_bytes(
+                                                            base[8..12].try_into().unwrap(),
+                                                        ) & !0x20000;
+                                                        base[8..12]
+                                                            .copy_from_slice(&flags.to_le_bytes());
+                                                    }
+                                                    decode_water_dds_mips(&base)
+                                                        .map_err(|e| format!("{name}: {e}; {err}"))
+                                                        .map(|levels| {
+                                                            eprintln!("{name}: {err}; using base level");
+                                                            levels
+                                                        })
                                                 }
-                                                decode_water_dds_mips(&base)
-                                                    .map_err(|e| format!("{name}: {e}; {err}"))
-                                                    .map(|levels| {
-                                                        eprintln!("{name}: {err}; using base level");
-                                                        levels
-                                                    })
                                             }
+                                        } else {
+                                            decode_texture_mips(&raw)
+                                                .map_err(|e| format!("{name}: {e}"))
                                         }
-                                    } else {
-                                        decode_texture_mips(&raw)
-                                            .map_err(|e| format!("{name}: {e}"))
-                                    }
-                                }),
-                            Err(error) => Err(format!("{}: {error}", archive.display())),
+                                    }),
+                                Err(error) => Err(format!("{}: {error}", archive.display())),
+                            }
+                        };
+                        if tx.send((index, result)).is_err() {
+                            break;
                         }
-                    };
-                    if tx.send((index, result)).is_err() {
-                        break;
                     }
-                }
-            });
-        }
-        drop(tx);
-        let mut results: Vec<Option<Result<Vec<image::RgbaImage>, String>>> =
-            (0..jobs.len()).map(|_| None).collect();
-        for _ in 0..jobs.len() {
-            let (index, result) = rx
-                .recv()
-                .map_err(|_| "water texture workers stopped early")?;
-            results[index] = Some(result);
-        }
-        Ok(results.into_iter().map(Option::unwrap).collect())
-    })?;
+                });
+            }
+            drop(tx);
+            let mut results: Vec<Option<Result<Vec<image::RgbaImage>, String>>> =
+                (0..jobs.len()).map(|_| None).collect();
+            for _ in 0..jobs.len() {
+                let (index, result) = rx
+                    .recv()
+                    .map_err(|_| "water texture workers stopped early")?;
+                results[index] = Some(result);
+            }
+            Ok(results.into_iter().map(Option::unwrap).collect())
+        },
+    )?;
 
     let mut normals = Vec::with_capacity(29);
     let mut alternate = Vec::with_capacity(30);
