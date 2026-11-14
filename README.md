@@ -139,7 +139,9 @@ Settings → Graphics has two independent selectors:
 
 Options the hardware or the available SDK does not support are shown disabled with the reason (for example "Requires an NVIDIA RTX GPU" or "FSR SDK not found"). Frame generation is chosen independently of the upscaler. The pairings the vendor SDKs document are exposed (DLSS Frame Generation and FSR Frame Generation are documented as usable with any temporal upscaler; XeSS Frame Generation is only documented with XeSS upscaling or none). Pairings the SDKs do not document are not offered; see `docs/dx12-port-notes.md` and the pull request report for the unsupported list.
 
-**No vendor SDK is included with the viewer.** To enable a provider, obtain the SDK from the vendor (licenses, attribution and download links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and place the DLLs in one of these locations, then restart the viewer:
+**No vendor SDK is included with the viewer.** To enable a provider, obtain the SDK from the vendor (licenses, attribution and download links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and place the DLLs in one of these locations, then restart the viewer.
+
+For **AMD FSR** (recommended first SDK — no build step needed for the effects themselves): download the minimal package from <https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases> (`v2.4.0.zip`, ~200 MB; or from <https://gpuopen.com/fidelityfx-sdk/>) and copy the signed DX12 DLLs out of `Kits/FidelityFX/signedbin/` — you need `amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` and `amd_fidelityfx_framegeneration_dx12.dll`. The effects are DLL-based; you do **not** need to compile anything (only the samples and their media need building). FSR 1 is a separate shader pair (EASU/RCAS), not part of this SDK.
 
 - `sdk\` next to `Perfect-World-Explorer.exe`,
 - the folder named by the `PW_UPSCALER_SDK_DIR` environment variable,

@@ -69,10 +69,10 @@ fn main() {
     let sdk = upscaling::probe_sdk(&args.sdk_dir);
     println!("SDK probe: {}", sdk.summary());
     println!(
-        "  DLSS FG: {}   FSR FG: {} (optical flow: {})   XeSS 2 FG: {}",
+        "  DLSS FG: {}   FSR FG: {} (loader: {})   XeSS 2 FG: {}",
         yes_no(sdk.dlss_frame_generation),
         yes_no(sdk.fsr_frame_generation),
-        yes_no(sdk.fsr_optical_flow),
+        yes_no(sdk.fsr_loader),
         yes_no(sdk.xess_frame_generation)
     );
     println!();

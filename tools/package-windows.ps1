@@ -63,11 +63,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md
 if (-not [string]::IsNullOrWhiteSpace($SdkDirectory)) {
     $sdkRoot = (Resolve-Path -LiteralPath $SdkDirectory).Path
     $mitAllowlist = @(
-        'ffx_fsr3upscaler_x64.dll',
-        'ffx_fsr2_api_x64.dll',
-        'ffx_fsr_api_x64.dll',
-        'ffx_framegeneration_x64.dll',
-        'ffx_opticalflow_x64.dll',
+        'amd_fidelityfx_loader_dx12.dll',
+        'amd_fidelityfx_upscaler_dx12.dll',
+        'amd_fidelityfx_framegeneration_dx12.dll',
         'libxess.dll',
         'libxess_d3d12.dll',
         'libxess_fg.dll'

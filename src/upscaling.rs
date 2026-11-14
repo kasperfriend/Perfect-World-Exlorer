@@ -159,13 +159,15 @@ pub struct SdkReport {
     /// `sl.interposer.dll` — Streamline host (DLSS goes through it in most
     /// integrations).
     pub streamline: bool,
-    /// An FSR upscaling component: `ffx_fsr3upscaler_x64.dll`,
-    /// `ffx_fsr2_api_x64.dll` or `ffx_fsr_api_x64.dll`.
+    /// `amd_fidelityfx_loader_dx12.dll` — FSR API loader (effect DLLs are
+    /// dispatched through it; required for any SDK 2.x FSR effect).
+    pub fsr_loader: bool,
+    /// `amd_fidelityfx_upscaler_dx12.dll` — FSR Upscaling 4 / FSR 3 / FSR 2
+    /// (all provided by this one DLL since FSR SDK 2.0).
     pub fsr_upscale: bool,
-    /// `ffx_framegeneration_x64.dll` — FSR 3 frame generation.
+    /// `amd_fidelityfx_framegeneration_dx12.dll` — FSR Frame Generation 4 /
+    /// FSR Frame Generation (Swapchain) 4 / FSR 3 frame generation.
     pub fsr_frame_generation: bool,
-    /// `ffx_opticalflow_x64.dll` — FSR 3 frame generation dependency.
-    pub fsr_optical_flow: bool,
     /// `libxess.dll` or `libxess_d3d12.dll` — XeSS Super Resolution.
     pub xess: bool,
     /// `libxess_fg.dll` — XeSS 2 Frame Generation.
@@ -175,13 +177,9 @@ pub struct SdkReport {
 const DLSS_SR_NAMES: [&str; 1] = ["nvngx_dlss.dll"];
 const DLSS_FG_NAMES: [&str; 1] = ["nvngx_dlssg.dll"];
 const STREAMLINE_NAMES: [&str; 1] = ["sl.interposer.dll"];
-const FSR_UPSCALE_NAMES: [&str; 3] = [
-    "ffx_fsr3upscaler_x64.dll",
-    "ffx_fsr2_api_x64.dll",
-    "ffx_fsr_api_x64.dll",
-];
-const FSR_FG_NAMES: [&str; 1] = ["ffx_framegeneration_x64.dll"];
-const FSR_OPTICAL_FLOW_NAMES: [&str; 1] = ["ffx_opticalflow_x64.dll"];
+const FSR_LOADER_NAMES: [&str; 1] = ["amd_fidelityfx_loader_dx12.dll"];
+const FSR_UPSCALE_NAMES: [&str; 1] = ["amd_fidelityfx_upscaler_dx12.dll"];
+const FSR_FG_NAMES: [&str; 1] = ["amd_fidelityfx_framegeneration_dx12.dll"];
 const XESS_NAMES: [&str; 2] = ["libxess.dll", "libxess_d3d12.dll"];
 const XESS_FG_NAMES: [&str; 1] = ["libxess_fg.dll"];
 
@@ -213,9 +211,9 @@ pub fn probe_sdk(settings_dir: &str) -> SdkReport {
     let dlss = probe(&DLSS_SR_NAMES);
     let dlss_frame_generation = probe(&DLSS_FG_NAMES);
     let streamline = probe(&STREAMLINE_NAMES);
+    let fsr_loader = probe(&FSR_LOADER_NAMES);
     let fsr_upscale = probe(&FSR_UPSCALE_NAMES);
     let fsr_frame_generation = probe(&FSR_FG_NAMES);
-    let fsr_optical_flow = probe(&FSR_OPTICAL_FLOW_NAMES);
     let xess = probe(&XESS_NAMES);
     let xess_frame_generation = probe(&XESS_FG_NAMES);
     SdkReport {
@@ -225,9 +223,9 @@ pub fn probe_sdk(settings_dir: &str) -> SdkReport {
         dlss,
         dlss_frame_generation,
         streamline,
+        fsr_loader,
         fsr_upscale,
         fsr_frame_generation,
-        fsr_optical_flow,
         xess,
         xess_frame_generation,
     }
@@ -245,6 +243,9 @@ impl SdkReport {
         }
         if self.streamline {
             found.push("Streamline");
+        }
+        if self.fsr_loader {
+            found.push("FSR loader");
         }
         if self.fsr_upscale {
             found.push("FSR upscaler");
@@ -528,7 +529,12 @@ pub fn support(method: UpscaleMethod, gpu: &GpuFacts, sdk: &SdkReport) -> Suppor
             } else if !sdk.fsr_upscale {
                 Support::Disabled(sdk_reason(
                     sdk,
-                    "FSR SDK (ffx_fsr3upscaler_x64.dll or ffx_fsr2_api_x64.dll)",
+                    "FSR SDK (amd_fidelityfx_upscaler_dx12.dll)",
+                ))
+            } else if !sdk.fsr_loader {
+                Support::Disabled(sdk_reason(
+                    sdk,
+                    "FSR loader (amd_fidelityfx_loader_dx12.dll)",
                 ))
             } else {
                 Support::Available("FSR SDK found (works on AMD, NVIDIA and Intel GPUs)")
@@ -590,13 +596,13 @@ pub fn support_framegen(
             } else if !sdk.fsr_frame_generation {
                 Support::Disabled(sdk_reason(
                     sdk,
-                    "FSR Frame Generation SDK (ffx_framegeneration_x64.dll)",
+                    "FSR Frame Generation SDK (amd_fidelityfx_framegeneration_dx12.dll)",
                 ))
-            } else if !sdk.fsr_optical_flow {
-                Support::Disabled(
-                    "FSR 3 frame generation needs ffx_opticalflow_x64.dll next to the SDK DLLs"
-                        .into(),
-                )
+            } else if !sdk.fsr_loader {
+                Support::Disabled(sdk_reason(
+                    sdk,
+                    "FSR loader (amd_fidelityfx_loader_dx12.dll)",
+                ))
             } else {
                 let _ = upscale;
                 Support::Available("FSR Frame Generation SDK found (upscaler-agnostic per AMD)")
@@ -949,9 +955,9 @@ mod tests {
             dlss: true,
             dlss_frame_generation: true,
             streamline: true,
+            fsr_loader: true,
             fsr_upscale: true,
             fsr_frame_generation: true,
-            fsr_optical_flow: true,
             xess: true,
             xess_frame_generation: true,
         }
@@ -1068,16 +1074,16 @@ mod tests {
     }
 
     #[test]
-    fn fsr_frame_generation_needs_fg_and_optical_flow() {
+    fn fsr_frame_generation_needs_fg_and_loader() {
         let mut sdk = no_sdk();
         sdk.fsr_frame_generation = true;
         assert!(
             support_framegen(FrameGenMethod::Fsr, UpscaleMethod::Fsr, &amd_rx9070(), &sdk)
                 .reason()
                 .unwrap()
-                .contains("ffx_opticalflow_x64.dll")
+                .contains("amd_fidelityfx_loader_dx12.dll")
         );
-        sdk.fsr_optical_flow = true;
+        sdk.fsr_loader = true;
         assert!(support_framegen(
             FrameGenMethod::Fsr,
             UpscaleMethod::Dlss,

@@ -38,9 +38,9 @@ print exactly which names were found):
 | DLSS Super Resolution | `nvngx_dlss.dll` |
 | DLSS Frame Generation | `nvngx_dlssg.dll` |
 | NVIDIA Streamline (host) | `sl.interposer.dll` |
-| AMD FSR upscaler | `ffx_fsr3upscaler_x64.dll`, `ffx_fsr2_api_x64.dll`, `ffx_fsr_api_x64.dll` |
-| AMD FSR Frame Generation | `ffx_framegeneration_x64.dll` |
-| AMD FSR Optical Flow (FG dependency) | `ffx_opticalflow_x64.dll` |
+| AMD FSR API loader (DX12) | `amd_fidelityfx_loader_dx12.dll` |
+| AMD FSR upscaler (FSR Upscaling 4 / FSR 3 / FSR 2) | `amd_fidelityfx_upscaler_dx12.dll` |
+| AMD FSR Frame Generation (FG 4 / FG Swapchain 4 / FSR 3 FG) | `amd_fidelityfx_framegeneration_dx12.dll` |
 | Intel XeSS | `libxess.dll`, `libxess_d3d12.dll` |
 | Intel XeSS 2 Frame Generation | `libxess_fg.dll` |
 
@@ -74,27 +74,37 @@ print exactly which names were found):
 
 ## AMD FidelityFX SDK — FSR (upscaling) and FSR Frame Generation
 
-- **What it is:** AMD's open-source temporal upscaler (FSR 2/FSR 3 upscaler)
-  and frame interpolation (FSR 3 Frame Generation, part of the FidelityFX
-  SDK). Works on AMD, NVIDIA and Intel GPUs.
+- **What it is:** AMD's open-source upscaler and frame-interpolation
+  technology, part of the AMD FSR SDK. One DX12 upscaler DLL provides AMD
+  FSR Upscaling 4 (4.1.2), FSR 3.1.6 and FSR 2; one DX12 frame-generation
+  DLL provides FSR Frame Generation 4.0.2, FSR Frame Generation (Swapchain)
+  4.0.0 and FSR 3 frame generation (3.1.7). Works on AMD, NVIDIA and Intel
+  GPUs. (FSR 1 is EASU/RCAS shaders, not a DLL; it is not part of this SDK.)
 - **License:** MIT License.
   Copyright © 2021–2024 Advanced Micro Devices, Inc.
-  The full license text is in the SDK (`LICENSE` in the FidelityFX SDK
-  repository) and permits use, modification and redistribution, including in
-  binary form, provided the copyright and permission notice are preserved.
+  The license text ships in the SDK archive root (`3rdpartynotice.md`) and
+  permits use, modification and redistribution, including in binary form,
+  provided the copyright and permission notice are preserved.
 - **Redistribution:** permitted by the MIT license with the copyright notice
   included. This package does not include the binaries by default. If you
   package them yourself, keep this notice and the AMD copyright line. The
   packaging script can stage **only** the MIT-licensed AMD and Intel DLLs
-  (see below); it is not possible to stage NVIDIA binaries with it.
-- **Attribution:** "FidelityFX" and "FSR" are trademarks of Advanced Micro
-  Devices, Inc. FSR Frame Generation requires the accompanying
-  `ffx_opticalflow_x64.dll` (also MIT).
+  (see below); it is not possible to stage NVIDIA binaries with it. The DLLs
+  are signed by AMD and ship prebuilt inside the SDK (no build step is
+  needed for the effects themselves; the samples and media are what need
+  building). Effect DLLs are dispatched through the loader DLL
+  (`amd_fidelityfx_loader_dx12.dll`); ship all three together.
+- **Attribution:** "FidelityFX", "FSR", "FidelityFX Super Resolution" are
+  trademarks of Advanced Micro Devices, Inc.
 - **Where to get it:** <https://gpuopen.com/fidelityfx-sdk/> and
-  <https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK> (see its
-  `LICENSE` file for your version).
-- **Version documented against:** FidelityFX SDK with FSR 3.1.x (FSR upscaler
-  + frame generation). Unverified in this build environment.
+  <https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK> (minimal
+  packaged release, e.g. `v2.4.0.zip`). The DLLs live under
+  `Kits/FidelityFX/signedbin/` inside the SDK archive.
+- **Version documented against:** AMD FSR SDK v2.4.0 (FSR Upscaling 4.1.2,
+  FSR 3.1.6 upscaling, FSR Frame Generation 4.0.2 / Swapchain 4.0.0 / FSR 3
+  FG 3.1.7, `amd_fidelityfx_*_dx12.dll`). Not verified on hardware in this
+  build environment. Earlier SDK 1.x DLL names (`ffx_*.dll`) are deprecated
+  by AMD and are no longer probed.
 
 ## Intel XeSS / XeSS 2
 

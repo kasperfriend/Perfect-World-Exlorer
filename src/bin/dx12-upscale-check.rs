@@ -86,10 +86,10 @@ fn main() {
         yes_no(sdk.streamline)
     );
     println!(
-        "  FSR upscaler: {}   FSR frame generation: {}   FSR optical flow: {}",
+        "  FSR loader: {}   FSR upscaler: {}   FSR frame generation: {}",
+        yes_no(sdk.fsr_loader),
         yes_no(sdk.fsr_upscale),
-        yes_no(sdk.fsr_frame_generation),
-        yes_no(sdk.fsr_optical_flow)
+        yes_no(sdk.fsr_frame_generation)
     );
     println!(
         "  libxess.dll: {}   libxess_fg.dll: {}",
