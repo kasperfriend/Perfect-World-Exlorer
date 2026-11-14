@@ -50,6 +50,7 @@ mod environment;
 mod far_trees_gpu;
 mod fog_matrix;
 mod foliage_mips;
+mod fsr1_gpu;
 #[allow(dead_code)]
 mod gfx_catalog;
 mod gfx_color_track;
