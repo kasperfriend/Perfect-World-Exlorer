@@ -6169,3 +6169,102 @@ branches, `basis_scale = placement.x_axis.length()`).
   branch (`emit_ring`), and the band is the client's cylinder strip with no
   axial extrusion. The swap removes the other candidate: an id-123/124 emitter
   drawn on the wrong shell scatters its quads into columns.
+
+## 63. The posted list, swept against the client sources (2026-11-09, second sweep)
+
+Every claim on the P0–P6 list was put against the client source dump on the
+Drive. What the sources say, claim by claim:
+
+### The ring draws one band, and `A3DGFXRing.cpp` proves it (P1)
+
+`A3DGFXRing.cpp` (read in full, 8,702 bytes) settles the third-beam question
+for the ring class: `InitStreamBuffer` builds `(nSect + 1) * 2` vertices — one
+pair per sect plus a wraparound pair copied from the first (`m_pVerts[nSect*2]
+= m_pVerts[0]`) — as a single `A3DPT_TRIANGLESTRIP`. `Sects: 0` falls back to
+`_default_sects = 36`. The radii are exactly the law already in `emit_ring`:
+`fTan = tan(m_fPitch)` clamped to `±m_fRadius / fHalfHeight`,
+`fDeltaRadius = fHalfHeight * fTan`, `upper = radius − delta`,
+`lower = radius + delta`, `y = m_bOrgAtCent ? ±fHalfHeight : (0, height)`.
+Scale: `Scale(fRadScale, fHeiScale, fRadScale)` with `NoRadScale`/`NoHeiScale`
+each holding their axis at 1. UV: `tu = i * TexWid / nSects + TexU`, lower row
+`tv = TexV + TexHei`, upper `tv = TexV`. There is no third column in the class;
+the stray beam at Archosaur is not ring geometry.
+
+### The waterfall UV claims re-verified against the two cited regions (P3)
+
+* `A3DDecalEx.cpp:561-573` (the card fill): `fU = {m_fTexU, m_fTexU +
+  m_fTexWid, …}` and `fV = {m_fTexV, m_fTexV + m_fTexHei, …}` — the fill reads
+  the window; it never rolls a cell.
+* `A3DGFXElement.h:539-566` (`TexAnimation`) is the only place a flipbook
+  steps: `m_dwTexTimeRemain` accumulates and, past `TexInterval`, the
+  **pre-increment** `++m_nCurTexCol` walks the grid with remainder carry and
+  `m_fTexU = m_fTexWid * m_nCurTexCol` is *assigned, never scrolled*. During
+  the first interval the card holds cell 0 — the cell it already uses. The
+  claim "no +1-cell roll; the client flips the already-used cell" is exactly
+  this: the step is a cell flip at each interval, and nothing adds a cell at
+  t = 0. `tex_window`'s `floor(tick / interval)` is the closed form of the same
+  walk (pre-increment past the interval ⇔ floor at the interval).
+* `A3DGFXRenderSlot.cpp` `PreRender` (`A3DTADDR_WRAP` for a `m_bTileMode`
+  slot, `A3DTADDR_CLAMP` for every other slot, already quoted at
+  `gfx_effect_gpu.rs:255-262`): the sampler split `key.tile ? Repeat :
+  ClampToEdge` is the client's, so the 3×2 non-tile sheet (`水门_瀑布`'s
+  atlas, `LightningBallblue3x2.dds`) clamps exactly as claimed. No change
+  needed; both claims match the code that is on the branch.
+
+### The sound's DropFileNames is `PathNum` + N `Path` rows (P6/P4)
+
+`GFXSOUNDIMP::Load` (A3DGFXSoundImp.cpp, read in full): at root version ≥ 88
+the row is `PathNum: %d` followed by exactly that many `Path: %s` rows into a
+`RandStringContainer(5)`; before 88, one `Path` row. `CheckSoundFileChange`
+forces a different take after two repeats. `A3DGFXSound::Load` then reads
+`m_ParamInfo.LoadSoundParamInfo(pFile)` (defined in A3DGFXElement.h/.cpp).
+**Landed:** `SoundRef.paths` collects every `Path` row, truncated to `PathNum`
+when the count is present; `PathNum` joins the known-key table; tests
+`a_sound_carries_its_whole_path_list` and the single-path record both pin it.
+
+### The missing-texture fallback is the vertex colour (P6)
+
+`A3DGFXRenderSlotMan` carries a `m_pDefaultPS_NoTex` ("gfx.hlslp#NOTEX$1",
+and `gfx_default_ps_noTex.txt` on 2.2) — the no-texture pixel shader draws
+the vertex colour. The recorded fallback law at `A3DGFXRenderSlot.cpp:78/227`
+is the same statement: an untextured quad still draws, in its diffuse. The
+viewer's placeholder texel was zero (invisible). **Landed:** the placeholder
+is white, so the WGSL multiply path yields `texel × vertex = vertex`, the
+client's fallback, and a missing map costs the element its texture, not its
+sprite.
+
+### Curve emitters carry a keypoint record after their own rows (P4)
+
+`A3DCurveEmitter::Load` (read in full): `Radius: %f`, then at version ≥ 66
+`IsAvgGen: %d`, `AvgGenSeg: %d`, `IsAvgGenSeq: %d`, and then — before the
+element's rows end — a full `m_pKeyPoint->Load(pFile, dwVersion)`. The
+positional reader of the client needs that embedded record read in place or
+every later row is misaligned; the viewer's key-based tokenizer already
+consumes it as the element's `KEYPOINTCOUNT` block, which is the row-alignment
+law in our parse. `genNextStep` is the walk `curve_average_next` reproduces:
+sequential `+ 1/N` or random `k/N`, `> 1` wraps to 0.
+
+### Claims that are editor-UI names with no client-source symbol
+
+`RetryCount`, `EmitAtPoint`, `DropFileNames`, `SkinActionLoop` — zero full-text
+hits across the whole source dump. `DropFileNames` resolves to the sound file
+list above (the editor's label for `PathNum`/`Path`); the other three remain
+**blocked on provenance**: per the standing rule, no source line, no change.
+`RolloffFactor` exists only in the audio-device layer (`AM3DSoundDevice.cpp/.h`,
+`AMTypes.h`) — a device setting, not a `.gfx` key; the record's distance
+attenuation is `MinDist`/`MaxDist` (both parsed). `ui126`/`ui138` match no
+op-id in `A3DGFXElement.h`'s property space (ground height is
+`ID_GFXOP_GROUND_HEIGHT` 1022 with `GROUND_NORMAL` 1010, already honoured via
+`ground_parent`); they look like effect-editor dialog ids and need the same
+provenance note.
+
+### The middle-truncation wall (why four claims wait)
+
+`read_file_text` keeps the start and end of large files and no offset exists.
+The four claims that live in the unread middle remain open with their regions
+named: `A3DTrail::TickAnimation`/`FillVertexBuffer` (ribbons ×
+`GetActualScale` — `AddTrailSeg` scales `OrgPos1..OrgPos2` by the caller's
+`fScale`, the caller is in the cut), `A3DGFXLightning::FillVertexBuffer`
+(BoltScale oval law, the 200-seg cap and the 16-seg arc), the model element's
+`CanDoFadeOut`/rewind pair, and `LoadSoundParamInfo`'s parameter rows. The
+load keys around them are captured above and in §22.

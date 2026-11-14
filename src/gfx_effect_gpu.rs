@@ -358,12 +358,17 @@ impl Draw {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            // Fully transparent, not white. This stand-in is bound whenever a
-            // named texture will not load, and multiply-on-a-white-texel turns
-            // the quad into an opaque slab: a `RingGlowWhite9` ring that failed
-            // to resolve covered the screen in white. A zero texel draws
-            // nothing under every blend pair the corpus authors, so a missing
-            // map costs the element its sprite and nothing else.
+            // Fully transparent is the wrong stand-in: the client never draws
+            // a zero texel for a missing map. `A3DGFXRenderSlotMan` keeps the
+            // slot untextured and runs its NOTEX pixel shader
+            // (`m_pDefaultPS_NoTex`, "gfx.hlslp#NOTEX$1"), i.e. the quad comes
+            // out as its **vertex colour** — the recorded fallback law at
+            // A3DGFXRenderSlot.cpp:78/227. A white texel through the WGSL
+            // multiply path reproduces that exactly: colour = texel × vertex
+            // = vertex. The zero texel made every unresolved map cost the
+            // element its sprite; the client still draws the quad (a
+            // `RingGlowWhite9` ring becomes a white slab in retail too, which
+            // is why the earlier white run looked wrong but matched).
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
@@ -371,7 +376,7 @@ impl Draw {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &[0, 0, 0, 0],
+                &[255, 255, 255, 255],
                 wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(4),

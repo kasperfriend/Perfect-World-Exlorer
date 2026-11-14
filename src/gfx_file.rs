@@ -955,7 +955,16 @@ pub struct ModelRef {
 /// Sound (element 170).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SoundRef {
+    /// The first of `paths`, what single-consumers key on.
     pub path: String,
+    /// Every `Path` row of the record. The client keeps a random file
+    /// container here: `GFXSOUNDIMP::Load` (A3DGFXSoundImp.cpp) reads
+    /// `PathNum: %d` and then that many `Path: %s` rows at root version 88
+    /// or later — one `Path` row before 88 — into a `RandStringContainer(5)`,
+    /// and `ChangeSoundFile` draws one at random per sound change. The editor
+    /// calls this list DropFileNames; the rows are the sound's alternate
+    /// takes, not a single path with junk after it.
+    pub paths: Vec<String>,
     pub version: u32,
     pub force_2d: bool,
     pub is_loop: bool,
@@ -1658,6 +1667,21 @@ fn spec(id: u32, fields: &[Field], version: u32) -> Result<Spec, String> {
         }),
         170 => Spec::Sound(SoundRef {
             path: lookup.one("Path").unwrap_or_default().to_string(),
+            paths: {
+                // `PathNum` is the count the client reads at version 88 or
+                // later and then consumes exactly that many `Path` rows
+                // (A3DGFXSoundImp.cpp, `GFXSOUNDIMP::Load`); a record that
+                // authors the count takes exactly its rows, and an older
+                // single-path record takes the one row it has.
+                let mut paths: Vec<String> =
+                    lookup.all("Path").into_iter().map(str::to_string).collect();
+                if let Ok(count) = lookup.integer("PathNum", 0) {
+                    if count > 0 {
+                        paths.truncate(count as usize);
+                    }
+                }
+                paths
+            },
             version: clamp_u32(lookup.integer("SoundVer", 1)?),
             force_2d: lookup.flag("Force2D", false)?,
             is_loop: lookup.flag("IsLoop", false)?,
@@ -2359,6 +2383,7 @@ const KNOWN_KEYS: &[&str] = &[
     "ParticleHeight",
     "ParticleWidth",
     "Path",
+    "PathNum",
     "PerBolts",
     "Persistence",
     "Phi",
@@ -2926,6 +2951,26 @@ mod tests {
     }
 
     #[test]
+    /// The sound's file list is `PathNum` rows of `Path` at root version 88
+    /// or later: `GFXSOUNDIMP::Load` (A3DGFXSoundImp.cpp) reads the count
+    /// and then exactly that many names into its `RandStringContainer(5)`,
+    /// and `ChangeSoundFile` draws one at random per sound change. The
+    /// editor labels that list DropFileNames; two rows are two takes of one
+    /// cue, and the count is the number of rows, not a boolean.
+    #[test]
+    fn a_sound_carries_its_whole_path_list() {
+        let sound = "GFXELEMENTID: 170\nName: s\nSrcBlend: 5\nDestBlend: 2\n\
+            PathNum: 2\nPath: Sfx\\a.wav\nPath: Sfx\\b.wav\nSoundVer: 1\nForce2D: 0\n\
+            IsLoop: 0\nVolume: 100\nMinDist: 6.000000\nMaxDist: 25.000000\n\
+            StartTime: 0\nKEYPOINTCOUNT: 0\n";
+        let root = parse(&(header37(1) + sound)).unwrap();
+        let Spec::Sound(sound) = &root.elements[0].spec else {
+            panic!("element 170 is a sound");
+        };
+        assert_eq!(sound.path, "Sfx\\a.wav");
+        assert_eq!(sound.paths, ["Sfx\\a.wav", "Sfx\\b.wav"]);
+    }
+
     fn trail_152_cylinders_grids_children_lights_and_sounds() {
         let trail = "GFXELEMENTID: 152\nName: t\nSrcBlend: 5\nDestBlend: 2\nTexFile: 轨迹\\trail003.dds\n\
             BufLen: 256\nAmplitude: 1.000000\nWaveLen: 1\nPersistence: 0.250000\nOctaveNum: 5\n\
@@ -3011,6 +3056,7 @@ mod tests {
             panic!("element 170 is a sound");
         };
         assert_eq!(sound.path, "Effect\\Player\\魔力燃烧.wav");
+        assert_eq!(sound.paths, ["Effect\\Player\\魔力燃烧.wav"]);
         assert_eq!(sound.volume, 100);
         assert!(!root.elements[5].spec.is_visual());
 
