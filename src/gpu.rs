@@ -4045,8 +4045,25 @@ pub fn run(
         models.set_terrain(move |x: f32, z: f32| Some(heights.ground(x, z)));
     }
     let destinations_path = current_map.dir.join("world_targets.txt");
-    let destinations =
+    let destinations_result =
         crate::navigation::destinations_for_world(&destinations_path, &current_map.instance_ids);
+    // Instance maps commonly ship a UTF-16 precinct.clt but no world_targets.txt.
+    // Offer the authored zone centres as safe local teleport points rather than
+    // treating this optional main-world list as a map-load failure.
+    let used_precinct_fallback = !destinations_path.exists();
+    let destinations = if used_precinct_fallback {
+        let fallback = ui_zones
+            .as_ref()
+            .map(crate::navigation::destinations_from_precinct)
+            .unwrap_or_default();
+        if fallback.is_empty() {
+            destinations_result
+        } else {
+            Ok(fallback)
+        }
+    } else {
+        destinations_result
+    };
     let mut world_rx: Option<std::sync::mpsc::Receiver<crate::world_objects::Message>> = None;
     let mut world_cancel: Option<Arc<std::sync::atomic::AtomicBool>> = None;
     let mut world_enabled = false;
@@ -4680,6 +4697,9 @@ pub fn run(
                                             if !world_change_error.is_empty() { ui.colored_label(egui::Color32::LIGHT_RED, world_change_error.as_str()); }
                                             ui.separator();
                                             ui.add(egui::TextEdit::singleline(&mut teleport_query).hint_text("Search locations or ID...").desired_width(f32::INFINITY));
+                                            if used_precinct_fallback && destinations.as_ref().is_ok_and(|list| !list.is_empty()) {
+                                                ui.label(egui::RichText::new("No world_targets.txt; showing authored precinct zone centres instead.").small().weak());
+                                            }
                                             match &destinations {Ok(list)=>{
                                                 if list.is_empty() { ui.label(egui::RichText::new(format!("{} has no world_targets.txt destinations for this viewer.", current_map.id)).small().weak()); }
                                                 let q=teleport_query.trim().to_lowercase();let filtered=list.iter().filter(|p|q.is_empty() || p.name.to_lowercase().contains(&q) || p.id.to_string().contains(&q)).collect::<Vec<_>>();

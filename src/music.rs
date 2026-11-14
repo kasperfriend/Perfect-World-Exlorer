@@ -13,6 +13,10 @@ fn default_zones_path(element: &Path) -> PathBuf {
 #[derive(Debug)]
 pub struct Zone {
     pub name: String,
+    /// Authored centre point present in version-7 instance precincts. It is not
+    /// a teleport target, but is a useful safe fly-to location when maps ship
+    /// no `world_targets.txt`.
+    pub center: Option<[f32; 3]>,
     polygon: Vec<[f32; 2]>,
     pub tracks: Vec<String>,
     /// Precinct stereo ambience paths surrounding the playlist.
@@ -120,6 +124,7 @@ impl Zones {
             }
             zones.push(Zone {
                 name,
+                center: None,
                 polygon: poly,
                 tracks: playlist,
                 ambience_day,
@@ -158,6 +163,7 @@ impl Zones {
             }
             // The first vector is the zone centre; the following `n` vectors are
             // its polygon. Some instance files repeat the first vertex at the end.
+            let center = vector(lines.get(i + 2).ok_or("missing precinct centre")?)?;
             let begin = i + 3;
             let stop = begin.checked_add(n).ok_or("overflow")?;
             if stop > lines.len() {
@@ -176,6 +182,7 @@ impl Zones {
             }
             zones.push(Zone {
                 name,
+                center: Some(center),
                 polygon: poly,
                 tracks: Vec::new(),
                 ambience_day: String::new(),
@@ -759,6 +766,7 @@ mod tests {
         assert_eq!(zones.zones[0].name, "Mirror");
         assert_eq!(zones.zones[1].name, "Illusion");
         assert_eq!(zones.zones[0].polygon.len(), 5);
+        assert_eq!(zones.zones[0].center, Some([-455.420013, 18.0, 420.273987]));
         assert!(zones.find(-250., 280.).is_some());
     }
 
