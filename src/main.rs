@@ -760,10 +760,29 @@ fn terrain(
     // * All to VRAM keeps the decoded grid in memory and never writes a cache.
     // * Otherwise the warm-start index is tried first; a hit skips the block
     //   decode and the whole recompression pass, and only a miss builds pages.
-    let identity = if all_to_vram {
-        String::new()
+    let (identity, mut cold_identity, cached) = if all_to_vram {
+        (None, None, None)
+    } else if terrain_store::might_have_warm_cache(&cache_root) {
+        let identity = terrain_store::source_identity(&t, &dir, &names)?;
+        let cached = terrain_store::restore(
+            &cache_root,
+            &identity,
+            w,
+            h,
+            grid,
+            terrain_store::budget(),
+        )?;
+        (Some(identity), None, cached)
     } else {
-        terrain_store::source_identity(&t, &dir, &names)?
+        // First-ever terrain load: do not read every source tile once for its
+        // identity and again for decode. Hash each tile's already-loaded bytes
+        // during the mandatory decode pass, then publish the same warm index.
+        eprintln!("Cold terrain build: folding cache identity into tile reads");
+        (
+            None,
+            Some(terrain_store::SourceIdentity::new(&t, &dir)),
+            None,
+        )
     };
     // Independent texture-bank work can run alongside the terrain block
     // decode. The selected sequences are immutable and produce the same mip
@@ -790,17 +809,16 @@ fn terrain(
             )
         })
         .map_err(|e| format!("cannot start terrain material loader: {e}"))?;
-    let cached = if all_to_vram {
-        None
-    } else {
-        terrain_store::restore(&cache_root, &identity, w, h, grid, terrain_store::budget())?
-    };
     let mut terrain_pages = if cached.is_some() {
         None
     } else if all_to_vram {
         Some(terrain_store::Builder::new_resident(w, h, grid)?)
     } else {
-        Some(terrain_store::Builder::new(&cache_root, w, h, grid)?.with_identity(&identity))
+        let mut builder = terrain_store::Builder::new(&cache_root, w, h, grid)?;
+        if let Some(identity) = &identity {
+            builder.set_identity(identity);
+        }
+        Some(builder)
     };
     // Colour sections are validated per block below. Neither current CPU nor
     // GPU renderer consumes them; do not allocate a second world-sized RGBA grid.
@@ -831,6 +849,9 @@ fn terrain(
             }
             let data =
                 fs::read(dir.join(format!("{name}.t2bk"))).map_err(|e| format!("{name}: {e}"))?;
+            if let Some(identity) = &mut cold_identity {
+                identity.add_tile(name, &data);
+            }
             if u32at(&data, 0)? != 0x54424b42 {
                 return Err(format!("{name}: invalid T2BK"));
             };
@@ -879,6 +900,13 @@ fn terrain(
             #[cfg(windows)]
             windows_setup::loading_progress(format!("Loading terrain tiles {}/{}", si + 1, count));
         }
+    }
+    if let Some(identity) = cold_identity.take() {
+        let identity = identity.finish();
+        terrain_pages
+            .as_mut()
+            .expect("cold terrain build owns a page writer")
+            .set_identity(&identity);
     }
     #[cfg(windows)]
     windows_setup::loading_progress("Loading world scenery and water...".into());

@@ -439,6 +439,11 @@ impl Builder {
         self.identity = Some(identity.to_string());
         self
     }
+    /// Set the cache identity after a cold build has hashed its source tiles
+    /// in the same pass that read them for terrain decoding.
+    pub fn set_identity(&mut self, identity: &str) {
+        self.identity = Some(identity.to_string());
+    }
     /// Drop everything and remove a half-written session object.
     fn abandon(&mut self) {
         self.resident = None;
@@ -650,27 +655,60 @@ fn safe_name(name: &str) -> bool {
 /// patch, a repacked archive or a different world cannot resolve to the wrong
 /// cached grid. Reading the sources is one sequential pass; it replaces the
 /// per-block zlib decode, XOR plane encode, SHA-256 and write of a cold build.
-pub fn source_identity(header: &[u8], dir: &Path, names: &[String]) -> Result<String, String> {
-    let mut hash = Sha256::new();
-    hash.update(b"PWTSRC01");
-    // Two instance maps can share a TRN2 header and subterrain names. The map
-    // folder keeps their warm-start caches separate even when those bytes are
-    // identical.
-    if let Some(map) = dir.file_name().and_then(|name| name.to_str()) {
-        hash.update((map.len() as u64).to_le_bytes());
-        hash.update(map.as_bytes());
+/// Incremental content identity so the cold terrain pass can hash each tile
+/// while its bytes are already resident for validation/decode.
+pub struct SourceIdentity(Sha256);
+
+impl SourceIdentity {
+    pub fn new(header: &[u8], dir: &Path) -> Self {
+        let mut hash = Sha256::new();
+        hash.update(b"PWTSRC01");
+        // Two instance maps can share a TRN2 header and subterrain names. The
+        // map folder keeps their warm-start caches separate even when bytes match.
+        if let Some(map) = dir.file_name().and_then(|name| name.to_str()) {
+            hash.update((map.len() as u64).to_le_bytes());
+            hash.update(map.as_bytes());
+        }
+        hash.update((header.len() as u64).to_le_bytes());
+        hash.update(header);
+        Self(hash)
     }
-    hash.update((header.len() as u64).to_le_bytes());
-    hash.update(header);
+
+    pub fn add_tile(&mut self, name: &str, bytes: &[u8]) {
+        self.0.update((name.len() as u64).to_le_bytes());
+        self.0.update(name.as_bytes());
+        self.0.update((bytes.len() as u64).to_le_bytes());
+        self.0.update(bytes);
+    }
+
+    pub fn finish(self) -> String {
+        hex(self.0.finalize().as_slice())
+    }
+}
+
+pub fn source_identity(header: &[u8], dir: &Path, names: &[String]) -> Result<String, String> {
+    let mut identity = SourceIdentity::new(header, dir);
     for name in names {
         let bytes =
             fs::read(dir.join(format!("{name}.t2bk"))).map_err(|e| format!("{name}: {e}"))?;
-        hash.update((name.len() as u64).to_le_bytes());
-        hash.update(name.as_bytes());
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(&bytes);
+        identity.add_tile(name, &bytes);
     }
-    Ok(hex(hash.finalize().as_slice()))
+    Ok(identity.finish())
+}
+
+/// Whether there is an index that might be a warm-cache hit. On a brand-new
+/// cache directory there is no reason to hash every source file before the
+/// mandatory cold decode; that pass computes this same identity incrementally.
+pub fn might_have_warm_cache(root: &Path) -> bool {
+    match fs::read_dir(root) {
+        Ok(entries) => entries.filter_map(Result::ok).any(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension.to_string_lossy() == "index")
+        }),
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
 }
 
 fn take_u64(bytes: &[u8], pos: &mut usize) -> Option<u64> {
@@ -1142,7 +1180,9 @@ mod tests {
     #[test]
     fn warm_start_reuses_the_index_and_checks_every_input() {
         let dir = Temp::new();
+        assert!(!might_have_warm_cache(&dir.0));
         let (h, n) = fixture_with_identity(&dir.0, "source-one");
+        assert!(might_have_warm_cache(&dir.0));
         assert_grid(&h, &n);
         drop(h);
         drop(n);
@@ -1230,6 +1270,9 @@ mod tests {
         let names = vec!["a".to_string()];
         write(b"first payload");
         let one = source_identity(header, &sub, &names).unwrap();
+        let mut incremental = SourceIdentity::new(header, &sub);
+        incremental.add_tile("a", b"first payload");
+        assert_eq!(incremental.finish(), one);
         assert_eq!(one.len(), 64, "sha-256 as hex");
         assert!(one.chars().all(|c| c.is_ascii_hexdigit()));
         write(b"second payload");
