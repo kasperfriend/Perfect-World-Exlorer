@@ -473,7 +473,11 @@ mod tests {
         let matrices = [
             Mat4::IDENTITY,
             Mat4::perspective_rh(65f32.to_radians(), 1.4, 0.1, 500.)
-                * Mat4::look_to_rh(Vec3::new(3., 7., 12.), Vec3::new(-0.2, -0.1, -1.).normalize(), Vec3::Y),
+                * Mat4::look_to_rh(
+                    Vec3::new(3., 7., 12.),
+                    Vec3::new(-0.2, -0.1, -1.).normalize(),
+                    Vec3::Y,
+                ),
             Mat4::orthographic_rh(30., -30., -20., 20., 200., 1.)
                 * Mat4::look_to_rh(Vec3::new(0., 100., 0.), Vec3::NEG_Y, Vec3::Z),
         ];
@@ -492,9 +496,21 @@ mod tests {
                         let mut corner_visible = false;
                         for corner in 0..8 {
                             let point = Vec3::new(
-                                if corner & 1 == 0 { bounds[0] } else { bounds[3] },
-                                if corner & 2 == 0 { bounds[1] } else { bounds[4] },
-                                if corner & 4 == 0 { bounds[2] } else { bounds[5] },
+                                if corner & 1 == 0 {
+                                    bounds[0]
+                                } else {
+                                    bounds[3]
+                                },
+                                if corner & 2 == 0 {
+                                    bounds[1]
+                                } else {
+                                    bounds[4]
+                                },
+                                if corner & 4 == 0 {
+                                    bounds[2]
+                                } else {
+                                    bounds[5]
+                                },
                             );
                             let clip = matrix * point.extend(1.);
                             if clip.x >= -clip.w
@@ -509,7 +525,10 @@ mod tests {
                             }
                         }
                         if corner_visible {
-                            assert!(in_frustum(matrix, bounds), "culled visible bounds: {bounds:?}");
+                            assert!(
+                                in_frustum(matrix, bounds),
+                                "culled visible bounds: {bounds:?}"
+                            );
                         }
                     }
                 }

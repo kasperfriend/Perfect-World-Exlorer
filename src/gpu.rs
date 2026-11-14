@@ -328,10 +328,7 @@ impl WaterBatch {
     // Conservative homogeneous clip-space rejection for the rectangular bounds.
     fn visible(&self, matrix: Mat4) -> bool {
         let [x0, x1, z0, z1] = self.bounds;
-        crate::terrain_residency::in_frustum(
-            matrix,
-            [x0, self.height, z0, x1, self.height, z1],
-        )
+        crate::terrain_residency::in_frustum(matrix, [x0, self.height, z0, x1, self.height, z1])
     }
     fn distance_squared(&self, p: Vec3) -> f32 {
         let [x0, x1, z0, z1] = self.bounds;

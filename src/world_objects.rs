@@ -856,11 +856,7 @@ impl GpuPage {
         fold_commands(&spans, order, view)
     }
     /// Curtain-only command list, built once alongside the opaque page lists.
-    pub fn sdr_draw_commands(
-        pages: &[Self],
-        order: &[(usize, usize)],
-        view: Pass,
-    ) -> Vec<DrawCmd> {
+    pub fn sdr_draw_commands(pages: &[Self], order: &[(usize, usize)], view: Pass) -> Vec<DrawCmd> {
         let spans: Vec<PageSpans> = pages
             .iter()
             .map(|p| PageSpans {
