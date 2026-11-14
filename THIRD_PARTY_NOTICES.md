@@ -80,31 +80,53 @@ print exactly which names were found):
   DLL provides FSR Frame Generation 4.0.2, FSR Frame Generation (Swapchain)
   4.0.0 and FSR 3 frame generation (3.1.7). Works on AMD, NVIDIA and Intel
   GPUs. (FSR 1 is EASU/RCAS shaders, not a DLL; it is not part of this SDK.)
-- **License:** MIT License.
-  Copyright © 2021–2024 Advanced Micro Devices, Inc.
-  The license text ships in the SDK archive root (`3rdpartynotice.md`) and
-  permits use, modification and redistribution, including in binary form,
-  provided the copyright and permission notice are preserved.
-- **Redistribution:** permitted by the MIT license with the copyright notice
-  included. This package does not include the binaries by default. If you
-  package them yourself, keep this notice and the AMD copyright line. The
-  packaging script can stage **only** the MIT-licensed AMD and Intel DLLs
-  (see below); it is not possible to stage NVIDIA binaries with it. The DLLs
-  are signed by AMD and ship prebuilt inside the SDK (no build step is
-  needed for the effects themselves; the samples and media are what need
-  building). Effect DLLs are dispatched through the loader DLL
-  (`amd_fidelityfx_loader_dx12.dll`); ship all three together.
+- **License:** AMD FSR SDK v2.4.0 (`Kits/FidelityFX/docs/license.md`).
+  The signed binaries (`signedbin/*.dll`) are expressly excepted from the
+  SDK's binary-only terms and are covered by the following MIT-style
+  permission, reproduced verbatim by this notice:
+
+  "Copyright (C) Advanced Micro Devices, Inc. All rights reserved.
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following condition:
+  The above copyright notice and this permission notice shall be included
+  in all copies or substantial portions of the Software."
+
+  (The remainder of the SDK — samples, tools, documentation and source files
+  not listed in the SDK's exception list — is redistributed **binary-only**,
+  with no reverse engineering/decompilation/disassembly, and this notice
+  reproduces those restrictions: they do not apply to the signed binaries
+  shipped here.) The full SDK license text ships in this repository as
+  `sdk/AMD_FidelityFX-SDK-2.4.0-LICENSE.md`.
+- **Redistribution:** **INCLUDED.** The following signed binaries are
+  committed to this repository under `sdk/` and are staged into every
+  release package produced by `tools/package-windows.ps1`:
+
+  | File | SHA256 | Size |
+  |---|---|---|
+  | `sdk/amd_fidelityfx_loader_dx12.dll` | `e2191d3c0828be45eb8affd4e3ec0378f2293adc345b772a7170edcf3b021ecb` | 39,184 bytes |
+  | `sdk/amd_fidelityfx_upscaler_dx12.dll` | `aad4fccccb29084a655f9a4f9f613bd22c8c03fb4a0f8840148cc6543b4ccace` | 57,664,272 bytes |
+  | `sdk/amd_fidelityfx_framegeneration_dx12.dll` | `e6843252f58b0341a0d80f6a20bc0d840643ee95bc48c22cac08745344577bb6` | 29,679,376 bytes |
+
+  They are signed by AMD and are MIT-style licensed, so committing and
+  redistributing them with this notice is permitted. The loader DLL is
+  required at runtime; the effect DLLs are dispatched through it. Any Intel
+  XeSS or NVIDIA binaries remain user-supplied; the packaging script never
+  stages NVIDIA binaries.
 - **Attribution:** "FidelityFX", "FSR", "FidelityFX Super Resolution" are
   trademarks of Advanced Micro Devices, Inc.
 - **Where to get it:** <https://gpuopen.com/fidelityfx-sdk/> and
   <https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK> (minimal
-  packaged release, e.g. `v2.4.0.zip`). The DLLs live under
+  packaged release, `v2.4.0.zip`). The DLLs live under
   `Kits/FidelityFX/signedbin/` inside the SDK archive.
 - **Version documented against:** AMD FSR SDK v2.4.0 (FSR Upscaling 4.1.2,
   FSR 3.1.6 upscaling, FSR Frame Generation 4.0.2 / Swapchain 4.0.0 / FSR 3
-  FG 3.1.7, `amd_fidelityfx_*_dx12.dll`). Not verified on hardware in this
-  build environment. Earlier SDK 1.x DLL names (`ffx_*.dll`) are deprecated
-  by AMD and are no longer probed.
+  FG 3.1.7). Not verified on hardware in this build environment. Earlier
+  SDK 1.x DLL names (`ffx_*.dll`) are deprecated by AMD and are no longer
+  probed.
 
 ## Intel XeSS / XeSS 2
 

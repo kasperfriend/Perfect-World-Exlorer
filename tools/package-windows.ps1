@@ -57,6 +57,44 @@ if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md
     throw "Staging did not produce THIRD_PARTY_NOTICES.md in $packageRoot"
 }
 
+# Vendored AMD FSR SDK 2.4.0 DX12 runtime (MIT-style licensed; see
+# THIRD_PARTY_NOTICES.md and sdk/AMD_FidelityFX-SDK-2.4.0-LICENSE.md). These
+# three DLLs are committed to the repository under sdk/ and are staged into
+# every package by default unless the caller passes -SdkDirectory (an
+# explicit folder then takes precedence) or the DLLs are absent.
+$vendoredSdk = Join-Path $repoRoot 'sdk'
+if ([string]::IsNullOrWhiteSpace($SdkDirectory) -and (Test-Path -LiteralPath $vendoredSdk -PathType Container)) {
+    $vendoredAllowlist = @(
+        'amd_fidelityfx_loader_dx12.dll',
+        'amd_fidelityfx_upscaler_dx12.dll',
+        'amd_fidelityfx_framegeneration_dx12.dll'
+    )
+    $sdkTarget = Join-Path $packageRoot 'sdk'
+    New-Item -ItemType Directory -Force -Path $sdkTarget | Out-Null
+    $stagedVendored = 0
+    foreach ($name in $vendoredAllowlist) {
+        $source = Join-Path $vendoredSdk $name
+        if (Test-Path -LiteralPath $source -PathType Leaf) {
+            Copy-Item -LiteralPath $source -Destination (Join-Path $sdkTarget $name)
+            $stagedVendored++
+            Write-Host "Staged vendored AMD FSR binary: sdk/$name"
+        }
+    }
+    if ($stagedVendored -eq 0) {
+        Remove-Item -LiteralPath $sdkTarget -Force
+        Write-Host "No vendored AMD FSR DLLs found under sdk/; nothing staged."
+    } else {
+        # Ship the AMD license + third-party notice inside sdk/ so the staged
+        # binaries carry their permission notice with them (MIT-style terms).
+        foreach ($extra in @('AMD_FidelityFX-SDK-2.4.0-LICENSE.md', 'AMD_FidelityFX-SDK-2.4.0-notices.md')) {
+            $extraPath = Join-Path $vendoredSdk $extra
+            if (Test-Path -LiteralPath $extraPath -PathType Leaf) {
+                Copy-Item -LiteralPath $extraPath -Destination (Join-Path $sdkTarget $extra)
+            }
+        }
+    }
+}
+
 # Optional: stage the MIT-licensed vendor runtime DLLs from a user-supplied
 # SDK folder. Everything else in the folder is ignored; NVIDIA proprietary
 # DLLs are refused outright so they can never enter a package by accident.
@@ -107,11 +145,15 @@ if ($nvidiaBinaries.Count -gt 0) {
 # are inputs to this script, so only the viewer, the installed module packages,
 # the notices file and any explicitly staged MIT SDK DLLs can enter the
 # distribution. The checksum list is computed after every staging step above.
+$sdkStagedFiles = @()
+$sdkDir = Join-Path $packageRoot 'sdk'
+if (Test-Path -LiteralPath $sdkDir -PathType Container) {
+    $sdkStagedFiles = @(Get-ChildItem -LiteralPath $sdkDir -Recurse -File | Sort-Object FullName)
+}
 $files = @((Get-Item -LiteralPath $shippedExecutable)) +
     @((Get-ChildItem -LiteralPath $shippedModules -Recurse -File | Sort-Object FullName)) +
     @((Get-Item -LiteralPath (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md'))) +
-    @((Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter *.dll |
-        Where-Object { $_.FullName -match '\\sdk\\' } | Sort-Object FullName))
+    $sdkStagedFiles
 $checksumLines = @(
     foreach ($file in $files) {
         $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
