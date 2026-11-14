@@ -54,10 +54,7 @@ UNREAD = {
     ],
     'sprite': [('MaxExtent', None)],
     'ribbon': [('EnableMat', True), ('EnableOrgPos1', True), ('EnableOrgPos2', True)],
-    'particle': [
-        ('AlphaSeg', None), ('BetaSeg', None), ('IsAvgGen', None),
-        ('AvgGenSeg', None), ('IsAvgGenSeq', None), ('ScaleNoOff', True),
-    ],
+    'particle': [('ScaleNoOff', True)],
     'light': [
         ('LightType', None), ('FallOff', None), ('Attenuation0', None),
         ('Attenuation1', None), ('Attenuation2', None), ('Phi', None),
@@ -65,7 +62,7 @@ UNREAD = {
     ],
     'fractal': [('Pos1Enable', True), ('Pos2Enable', True)],
     'lightning': [('StrokeAmp', None)],
-    'trail': [('RenderSide', None)],
+    'trail': [],
     'model': [('AlphaCmp', True), ('Use3DCam', True)],
     'sound': [('Force2D', True), ('IsLoop', True), ('MinDist', None), ('MaxDist', None)],
     'wave': [('EnableMat', True), ('PosEnabled', None)],
@@ -110,7 +107,7 @@ DEFAULTS = {
 #                                   `LightType: 1` with the rest at zero
 NOT_VISUAL = {'MinDist', 'MaxDist', 'MaxExtent', 'NoDownSample', 'IsLoop', 'Force2D',
               'AlphaSeg', 'BetaSeg',
-              'Attenuation0', 'Attenuation1', 'Attenuation2', 'FallOff', 'Phi', 'Theta'}
+              'Attenuation0', 'Attenuation1', 'Attenuation2', 'FallOff', 'Phi', 'Theta', 'Use3DCam'}
 
 
 SPLIT = re.compile(r'GFXELEMENTID:\s*(\d+)')
