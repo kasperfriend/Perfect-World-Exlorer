@@ -1453,7 +1453,9 @@ pub(crate) fn depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
 /// box areas, grass areas, effects, EC models, critters, bezier routes, sounds.
 /// Ornament indices are the `Objects::load_ids` indices; other classes get
 /// disjoint synthetic indices so the same resident-bit set can cover all ten.
-pub fn ten_class_placements(t: &Terrain) -> Result<Vec<crate::scenery_visibility::Placement>, String> {
+pub fn ten_class_placements(
+    t: &Terrain,
+) -> Result<Vec<crate::scenery_visibility::Placement>, String> {
     use crate::scenery_visibility::{Placement, Visibility};
     let mut out = Vec::new();
     let by_export: HashMap<u32, usize> = t
@@ -1545,7 +1547,13 @@ pub fn ten_class_placements(t: &Terrain) -> Result<Vec<crate::scenery_visibility
             .collect::<Vec<_>>();
         return Err(format!(
             "{} EC-BSD ornament model records have no ECWLD placement reference (export IDs: {})",
-            missing.len(), missing.iter().take(16).cloned().collect::<Vec<_>>().join(", ")
+            missing.len(),
+            missing
+                .iter()
+                .take(16)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     Ok(out)

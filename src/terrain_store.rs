@@ -40,7 +40,9 @@ pub fn prepare_block(
     normals: &[[i8; 3]],
     side: usize,
 ) -> Result<PackedBlock, String> {
-    let cells = side.checked_mul(side).ok_or("terrain block size overflow")?;
+    let cells = side
+        .checked_mul(side)
+        .ok_or("terrain block size overflow")?;
     if side == 0 || heights.len() != cells || normals.len() != cells {
         return Err("invalid terrain cache block".into());
     }
@@ -519,7 +521,8 @@ impl Builder {
         by: usize,
         packed: PackedBlock,
     ) -> Result<(), String> {
-        if self.resident.is_some() || bx >= self.width / self.side || by >= self.height / self.side {
+        if self.resident.is_some() || bx >= self.width / self.side || by >= self.height / self.side
+        {
             return Err("invalid packed terrain cache block".into());
         }
         let id = by * (self.width / self.side) + bx;
