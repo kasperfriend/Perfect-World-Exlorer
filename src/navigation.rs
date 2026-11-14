@@ -11,23 +11,6 @@ pub fn destinations(path: &Path) -> Result<Vec<Destination>, String> {
     destinations_for_world(path, &[1])
 }
 
-/// Build safe local teleport points from instance precinct centres when a map
-/// has no authored `world_targets.txt` table.
-pub fn destinations_from_precinct(zones: &crate::music::Zones) -> Vec<Destination> {
-    zones
-        .zones
-        .iter()
-        .enumerate()
-        .filter_map(|(index, zone)| {
-            zone.center.map(|position| Destination {
-                id: index as u32 + 1,
-                name: zone.name.clone(),
-                position,
-            })
-        })
-        .collect()
-}
-
 /// Read destinations authored for one map. `world_ids` are the instance IDs
 /// from `configs/instance.txt`; an empty slice means all authored rows. The old
 /// hard-coded `fields[2] == "1"` filter only found main-world targets and made
@@ -334,18 +317,6 @@ mod tests {
         assert_eq!(other.len(), 1);
         assert_eq!(other[0].name, "Instance");
     }
-    #[test]
-    fn instance_precinct_centres_make_local_destinations() {
-        let zones = crate::music::Zones::parse(
-            "version 7\n123\n\"Mirror\"\n101001 5 0 0 101 0 60 1 101 0 0\n-455.42,18,420.27\n-505 100 506\n-506 100 64\n-4 100 64\n-4 100 506\n-505 100 506\n\"\"\n\"\"",
-        )
-        .unwrap();
-        let destinations = destinations_from_precinct(&zones);
-        assert_eq!(destinations.len(), 1);
-        assert_eq!(destinations[0].name, "Mirror");
-        assert_eq!(destinations[0].position, [-455.42, 18.0, 420.27]);
-    }
-
     #[test]
     fn orientation_roundtrip_and_terrain() {
         let m = MapSpace {

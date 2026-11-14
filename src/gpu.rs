@@ -4054,7 +4054,20 @@ pub fn run(
     let destinations = if used_precinct_fallback {
         let fallback = ui_zones
             .as_ref()
-            .map(crate::navigation::destinations_from_precinct)
+            .map(|zones| {
+                zones
+                    .zones
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, zone)| {
+                        zone.center.map(|position| crate::navigation::Destination {
+                            id: index as u32 + 1,
+                            name: zone.name.clone(),
+                            position,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         if fallback.is_empty() {
             destinations_result
