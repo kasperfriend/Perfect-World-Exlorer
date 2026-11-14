@@ -8365,7 +8365,7 @@ mod tests {
     /// strobed the hue as well as the brightness of every noise-lit effect.
     #[test]
     fn a_colour_noise_keeps_the_base_rgb_and_flickers_the_alpha_byte() {
-        // BaseColor: -16776961 = 0xFF00FF00 — green, opaque (the client's
+        // BaseColor: -16711936 = 0xFF00FF00 — green, opaque (the client's
         // `BaseColor` is the base as authored; there is no keypoint-colour
         // substitution in the class).
         let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
@@ -8376,7 +8376,7 @@ mod tests {
              AreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\n\
              StartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 200\r\n\
              WaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\n\
-             BaseColor: -16776961\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+             BaseColor: -16711936\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
              TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\n\
              Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
         let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
