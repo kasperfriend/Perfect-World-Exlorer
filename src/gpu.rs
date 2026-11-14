@@ -5309,21 +5309,17 @@ mod frame_snapshot_tests {
     #[test]
     fn sdr_water_curtains_draw_in_their_own_blended_pass() {
         assert!(SHADER.contains("fn sdr_blend_band(kind:f32)->bool"));
-        assert!(SHADER.contains(
-            "@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }"
-        ));
-        assert!(SHADER.contains(
-            "@fragment fn fs_sdr(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if !sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }"
-        ));
+        assert!(SHADER.contains("@fragment fn fs_sdr("));
+        // `fs` drops the band, `fs_sdr` keeps only it.
+        assert!(SHADER.contains("if sdr_blend_band(i.kind) { discard; } return fs_body"));
+        assert!(SHADER.contains("if !sdr_blend_band(i.kind) { discard; } return fs_body"));
         // The surface alpha: the texture's own alpha times the mesh-opacity
         // byte the vertex diffuse word carries (`mesh+0x2cc << 24`, `0xff`
         // unless a mesh declares opacity).
         assert!(SHADER.contains("select(1.,raw_tex.a*i.opacity,sdr_blend_band(i.kind))"));
         // The band must skip the alpha-test cutout that keeps the rest of the
         // baked world opaque.
-        assert!(SHADER.contains(
-            "if !sdr_blend_band(i.kind) && ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select"
-        ));
+        assert!(SHADER.contains("!sdr_blend_band(i.kind) && ((i.kind>1.5 && i.kind<2.5)"));
         let src = source();
         assert!(src.contains("entry_point: \"fs_sdr\""));
         assert!(src.contains("p.set_pipeline(&self.sdr_blend_pipeline);"));

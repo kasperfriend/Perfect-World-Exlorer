@@ -8320,16 +8320,11 @@ mod tests {
         for _ in 0..5 {
             step(&mut many_short, 20.);
         }
-        let long = one_long
-            .quads()
-            .first()
-            .unwrap_or_else(|| panic!("no particle drew at 100 ms"));
-        let short = many_short
-            .quads()
-            .first()
-            .unwrap_or_else(|| panic!("no particle drew at 100 ms"));
+        let long = one_long.quads().first().expect("particle drew").color;
+        let short = many_short.quads().first().expect("particle drew").color;
         assert_eq!(
-            long.color, short.color,
+            long,
+            short,
             "the noise sampled at the same 100 ms clock must not depend on \
              whether the frame schedule was 1x100 ms or 5x20 ms"
         );
