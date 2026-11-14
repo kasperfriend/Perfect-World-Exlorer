@@ -15,6 +15,23 @@ pub use client_region_shade::frame_ms;
 use client_region_shade::{inverse_time, seconds, unpack_rgb, Channel};
 use std::{collections::BTreeMap, fs, path::Path};
 
+/// Instance maps name their EC-BSD after the map folder (`a01.ecbsd`), while
+/// the main world and stand-alone fixtures keep `world.ecbsd`. Modules included
+/// by diagnostic binaries use this local resolver so they do not depend on the
+/// viewer's world catalog module.
+fn ecbsd_path(dir: &Path) -> std::path::PathBuf {
+    let stem = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("world");
+    let named = dir.join(format!("{stem}.ecbsd"));
+    if named.is_file() {
+        named
+    } else {
+        dir.join("world.ecbsd")
+    }
+}
+
 /// Client world day weight (1 = day, 0 = night).
 /// `4b60e0` produces the complementary night factor at object +0x70;
 /// `41ec86`, `42b4fe`, and `42bd6e` pass it to fog, BMD and terrain.
@@ -527,7 +544,7 @@ impl BoxArea {
 }
 impl Environments {
     pub fn load(scene: &Scene, dir: &Path) -> Result<Self, String> {
-        let b = fs::read(dir.join("world.ecbsd")).map_err(|e| e.to_string())?;
+        let b = fs::read(ecbsd_path(dir)).map_err(|e| e.to_string())?;
         let mut refs = BTreeMap::new();
         for block in &scene.blocks {
             for r in &block.boxes {

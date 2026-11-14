@@ -1238,7 +1238,24 @@ fn load_lightmaps(
     let bc = device
         .features()
         .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
-    let side = if bc { 256 } else { side };
+    // The retail client uses both 256px world lightmaps and 128px instance-map
+    // lightmaps. Pick the authored tile geometry before creating the atlas so
+    // BC uploads remain block-exact and shader addressing uses the same slot size.
+    let mut authored_side = None;
+    for name in &t.subterrain_names {
+        let path = t.map.dir.join(format!("{name}.t2lm"));
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let tiles = crate::terrain_lightmaps::Tiles::parse(&bytes)
+                    .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
+                authored_side = Some(tiles.dimension());
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        }
+    }
+    let side = authored_side.unwrap_or(if bc { 256 } else { side });
     let per_row = 4096 / side;
     let per_page = per_row * per_row;
     let pages = ((m.areas.len() + per_page - 1) / per_page).max(1);
@@ -1278,7 +1295,7 @@ fn load_lightmaps(
     let mut availability = vec![crate::terrain_lightmaps::Availability::Unbound; m.areas.len()];
     let mut unbound = Vec::new();
     for (si, name) in t.subterrain_names.iter().enumerate() {
-        let base = t.element.join("maps/world");
+        let base = t.map.dir.clone();
         let pair = match crate::terrain_lightmaps::Pair::read_optional(
             &base.join(format!("{name}.t2lm")),
             &base.join(format!("{name}.t2lm1")),
@@ -1292,9 +1309,17 @@ fn load_lightmaps(
             }
         };
         for (which, ext) in ["t2lm", "t2lm1"].iter().enumerate() {
-            let path = t.element.join("maps/world").join(format!("{name}.{ext}"));
+            let path = base.join(format!("{name}.{ext}"));
             let tiles = crate::terrain_lightmaps::Tiles::parse(pair.bytes(which == 1))
                 .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
+            if tiles.dimension() != side {
+                return Err(format!(
+                    "lightmap {} has {}px tiles; map atlas expects {}px",
+                    path.display(),
+                    tiles.dimension(),
+                    side
+                ));
+            }
             for j in 0..crate::terrain_lightmaps::TILES {
                 let raw = tiles.tile(j).unwrap();
                 let id = layout.area(si, j).unwrap();
@@ -1332,8 +1357,8 @@ fn load_lightmaps(
                     .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
                 if dds.format != crate::model_dds::Format::Dxt1
                     || dds.mips.len() != 1
-                    || dds.mips[0].width != 256
-                    || dds.mips[0].height != 256
+                    || dds.mips[0].width != side as u32
+                    || dds.mips[0].height != side as u32
                 {
                     return Err(format!("Unsupported lightmap DDS in {}", path.display()));
                 }
@@ -1344,19 +1369,9 @@ fn load_lightmaps(
                     let img = image::load_from_memory_with_format(raw, image::ImageFormat::Dds)
                         .map_err(|e| format!("lightmap {}: {e}", path.display()))?
                         .to_rgba8();
-                    if img.width() != 256 || img.height() != 256 {
+                    if img.width() != side as u32 || img.height() != side as u32 {
                         return Err("unexpected lightmap dimensions".into());
                     }
-                    let img = if side == 256 {
-                        img
-                    } else {
-                        image::imageops::resize(
-                            &img,
-                            side as u32,
-                            side as u32,
-                            image::imageops::FilterType::Triangle,
-                        )
-                    };
                     write_tile(img.as_raw(), (side * 4) as u32, side as u32);
                 }
             }

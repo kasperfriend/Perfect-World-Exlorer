@@ -453,6 +453,8 @@ impl Draw {
                 _ => receiver.binding(device, &view, &highlight, &gloss, sampler, &params[index]),
             }?;
             if alpha {
+                // Meshes are visited in index order, so the retained alpha list
+                // is sorted and can be searched logarithmically at draw time.
                 alpha_meshes.push(index);
             }
             meshes.push(Some(Mesh {
@@ -677,8 +679,8 @@ impl Draw {
             // Alpha-list meshes were bound against the blended receiver, whose
             // pipeline owns a different implicit bind-group layout. Submitting
             // them here would be a layout mismatch, so `draw_alpha_mesh` owns
-            // them instead.
-            if self.alpha_meshes.contains(&index) || !visible(mesh.key) {
+            // them instead. `alpha_meshes` is built in index order above.
+            if self.alpha_meshes.binary_search(&index).is_ok() || !visible(mesh.key) {
                 continue;
             }
             self.receiver.draw(pass, &mesh.mesh, &mesh.binding);

@@ -1,7 +1,7 @@
 //! Automatic first-run setup for the 64-bit Windows viewer.
 //! The embedded PE32 bridge is required because the client's SpeedTree DLL is 32-bit.
 use std::{
-    ffi::{c_void, OsString},
+    ffi::{c_void, OsStr, OsString},
     fs::{self, OpenOptions},
     hash::{Hash, Hasher},
     io::Write,
@@ -110,16 +110,59 @@ pub fn choose_client(owner: Hwnd, initial: Option<&Path>) -> Result<Option<PathB
         result
     }
 }
-fn cache_key(element: &Path) -> Result<u64, String> {
+fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    let exact = dir.join(name);
+    if exact.is_file() {
+        return Some(exact);
+    }
+    fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name))
+        .map(|e| e.path())
+}
+
+/// The first readable scene file in the client. A client without the main
+/// world can still prepare its tree cache from an instance map.
+fn default_scene_file(element: &Path) -> PathBuf {
+    let maps = element.join("maps");
+    // Prefer the canonical main world when it exists. Sorting all folders first
+    // would choose `a01` on most clients and silently cache the wrong tree table
+    // for callers that ask for the default scene.
+    let main_world = maps.join("world");
+    if let Some(path) = find_file(&main_world, "world.ecwld") {
+        return path;
+    }
+    let mut dirs = fs::read_dir(&maps)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.path())
+        .collect::<Vec<_>>();
+    dirs.sort();
+    for dir in dirs {
+        let id = dir.file_name().and_then(OsStr::to_str).unwrap_or("world");
+        if let Some(path) =
+            find_file(&dir, &format!("{id}.ecwld")).or_else(|| find_file(&dir, "world.ecwld"))
+        {
+            return path;
+        }
+    }
+    element.join("maps/world/world.ecwld")
+}
+
+fn cache_key(element: &Path, scene_path: &Path) -> Result<u64, String> {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     "PWTREE08-per-lod-leaf-corners-native-alpha-refs-v1".hash(&mut h);
     fs::canonicalize(element)
         .unwrap_or_else(|_| element.to_path_buf())
         .hash(&mut h);
-    for path in [
-        element.join("trees.pck"),
-        element.join("maps/world/world.ecwld"),
-    ] {
+    fs::canonicalize(scene_path)
+        .unwrap_or_else(|_| scene_path.to_path_buf())
+        .hash(&mut h);
+    for path in [element.join("trees.pck"), scene_path.to_path_buf()] {
         let m = fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         m.len().hash(&mut h);
         if let Ok(time) = m.modified() {
@@ -132,19 +175,35 @@ fn cache_key(element: &Path) -> Result<u64, String> {
     BRIDGE.hash(&mut h);
     Ok(h.finish())
 }
-fn ready(dir: &Path) -> bool {
-    dir.join("ready").is_file() && (0..59).all(|i| dir.join(format!("tree-{i:03}.pwt")).is_file())
+fn ready(dir: &Path, tree_type_count: usize) -> bool {
+    dir.join("ready").is_file()
+        && (0..tree_type_count).all(|i| dir.join(format!("tree-{i:03}.pwt")).is_file())
 }
 pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
+    let scene_path = default_scene_file(element);
+    let scene = crate::scene::Scene::load(&scene_path)?;
+    prepare_trees_for_scene(element, &scene_path, scene.tree_types.len())
+}
+
+/// Prepare trees from the selected map's ECWLD. Different maps reference
+/// different tree types, so the cache key and extraction source must follow the
+/// loaded world rather than always using `maps/world`. `tree_type_count` is the
+/// selected scene's authored tree table size; instance maps need not define the
+/// main world's 59 types.
+pub fn prepare_trees_for_scene(
+    element: &Path,
+    scene_path: &Path,
+    tree_type_count: usize,
+) -> Result<PathBuf, String> {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .ok_or("LOCALAPPDATA is not set")?
         .join("PerfectWorldViewer")
         .join("tree-cache");
     fs::create_dir_all(&base).map_err(|e| format!("Cannot create tree cache: {e}"))?;
-    let key = cache_key(element)?;
+    let key = cache_key(element, scene_path)?;
     let final_dir = base.join(format!("pwt08-{key:016x}"));
-    if ready(&final_dir) {
+    if ready(&final_dir, tree_type_count) {
         eprintln!("Using prepared SpeedTree cache {}", final_dir.display());
         let report = final_dir.join("tree-alpha-refs.csv");
         if report.is_file() {
@@ -171,7 +230,7 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
     let result = (|| -> Result<(), String> {
         let data = work.join("data");
         eprintln!("First launch: extracting trees and preparing them with the SpeedTreeRT.dll from your client. This may take a few minutes.");
-        crate::tree_source::extract(element, &data)?;
+        crate::tree_source::extract_for_scene(element, scene_path, &data)?;
         let helper = work.join("speedtree-bridge.exe");
         let mut f = OpenOptions::new()
             .write(true)
@@ -180,27 +239,30 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
             .map_err(|e| e.to_string())?;
         f.write_all(BRIDGE).map_err(|e| e.to_string())?;
         drop(f);
-        let out = Command::new(&helper)
-            .arg(element.join("speedtreert.dll"))
-            .arg(&data)
-            .creation_flags(0x08000000)
-            .output()
-            .map_err(|e| format!("Unable to launch 32-bit SpeedTree bridge: {e}"))?;
-        if !out.status.success() {
-            return Err(format!(
-                "SpeedTree preparation failed ({})\n{}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr)
-            ));
+        if tree_type_count > 0 {
+            let out = Command::new(&helper)
+                .arg(element.join("speedtreert.dll"))
+                .arg(&data)
+                .arg(tree_type_count.to_string())
+                .creation_flags(0x08000000)
+                .output()
+                .map_err(|e| format!("Unable to launch 32-bit SpeedTree bridge: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "SpeedTree preparation failed ({})\n{}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr)
+                ));
+            }
         }
-        for i in 0..59 {
+        for i in 0..tree_type_count {
             if !data.join(format!("tree-{i:03}.pwt")).is_file() {
                 return Err(format!("SpeedTree type {i} did not generate"));
             }
         }
         // The viewer reads source textures directly from the client's PCK. Do not
         // retain duplicate extracted SPT/DDS files or placement spreadsheets.
-        for i in 0..59 {
+        for i in 0..tree_type_count {
             for ext in ["spt", "dds"] {
                 fs::remove_file(data.join(format!("tree-{i:03}.{ext}")))
                     .map_err(|e| format!("Cannot clean temporary tree source: {e}"))?;
@@ -214,7 +276,7 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
         match fs::rename(&data, &final_dir) {
             Ok(()) => {}
             Err(e) => {
-                if !ready(&final_dir) {
+                if !ready(&final_dir, tree_type_count) {
                     return Err(format!("Cannot publish tree cache: {e}"));
                 }
             }
@@ -246,6 +308,16 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
 
 // Show a small native loading window while terrain and the first-run tree cache
 // are prepared. Its message pump lives on a separate thread from disk loading.
+#[repr(C)]
+struct InitCommonControls {
+    size: u32,
+    classes: u32,
+}
+#[link(name = "comctl32")]
+extern "system" {
+    fn InitCommonControlsEx(info: *const InitCommonControls) -> i32;
+}
+
 #[repr(C)]
 struct WinMessage {
     hwnd: Hwnd,
@@ -284,6 +356,7 @@ static LOADING_SENDER: std::sync::OnceLock<
     std::sync::Mutex<Option<std::sync::mpsc::Sender<String>>>,
 > = std::sync::OnceLock::new();
 pub fn loading_progress(message: String) {
+    crate::world_handoff::publish_progress(&message);
     if let Some(lock) = LOADING_SENDER.get() {
         if let Ok(guard) = lock.lock() {
             if let Some(tx) = guard.as_ref() {
@@ -309,17 +382,21 @@ impl LoadingWindow {
             *guard = Some(status_tx);
         }
         let thread = std::thread::spawn(move || unsafe {
+            let _ = InitCommonControlsEx(&InitCommonControls {
+                size: std::mem::size_of::<InitCommonControls>() as u32,
+                classes: 0x20, // ICC_PROGRESS_CLASS
+            });
             let class = wide("STATIC");
-            let text = wide("Perfect World Explorer — Loading");
+            let text = wide("Perfect World Explorer — Loading world");
             let hwnd = CreateWindowExW(
-                0,
+                0x00000008, // WS_EX_TOPMOST while the world is prepared
                 class.as_ptr(),
                 text.as_ptr(),
                 0x00c00000 | 0x10000000,
                 0x80000000u32 as i32,
                 0x80000000u32 as i32,
-                540,
-                160,
+                620,
+                220,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
@@ -328,30 +405,58 @@ impl LoadingWindow {
             let label = if hwnd.is_null() {
                 std::ptr::null_mut()
             } else {
+                let instance = GetModuleHandleW(std::ptr::null());
+                control(
+                    hwnd,
+                    instance,
+                    "STATIC",
+                    "LOADING WORLD",
+                    0x50000000 | 0x00000001,
+                    26,
+                    20,
+                    560,
+                    26,
+                    0,
+                );
                 let h = control(
                     hwnd,
-                    GetModuleHandleW(std::ptr::null()),
+                    instance,
                     "STATIC",
-                    "Loading the world...",
+                    "Preparing the world...",
                     0x50000000,
-                    24,
-                    22,
-                    480,
-                    25,
+                    26,
+                    62,
+                    560,
+                    26,
                     0,
                 );
                 control(
                     hwnd,
-                    GetModuleHandleW(std::ptr::null()),
+                    instance,
                     "STATIC",
-                    "First launch may take several minutes while trees are prepared.",
+                    "Loading terrain, scenery, water and client assets. Large maps can take longer.",
                     0x50000000,
-                    24,
-                    55,
-                    480,
+                    26,
+                    96,
+                    560,
                     25,
                     0,
                 );
+                let progress = control(
+                    hwnd,
+                    instance,
+                    "msctls_progress32",
+                    "",
+                    0x50000000,
+                    26,
+                    138,
+                    560,
+                    18,
+                    0,
+                );
+                if !progress.is_null() {
+                    SendMessageW(progress, 0x400 + 10, 1, 45); // PBM_SETMARQUEE
+                }
                 ShowWindow(hwnd, 5);
                 UpdateWindow(hwnd);
                 h

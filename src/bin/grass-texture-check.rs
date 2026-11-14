@@ -3,6 +3,8 @@
 mod dxt;
 #[path = "../grass.rs"]
 mod grass;
+#[path = "../loading_workers.rs"]
+mod loading_workers;
 #[path = "../model_dds.rs"]
 mod model_dds;
 #[path = "../pck.rs"]

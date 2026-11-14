@@ -202,26 +202,57 @@ impl Residency {
     }
 }
 
-/// Conservative bounding-box/frustum test, the viewer's stand-in for the view
-/// call that fills `block+0x74`: a box is culled only when all eight corners
-/// fall outside the same clip plane, so nothing that could be on screen is
-/// dropped.
-pub fn in_frustum(matrix: Mat4, bounds: [f32; 6]) -> bool {
-    let mut corners = [Vec3::ZERO; 8];
-    for (i, corner) in corners.iter_mut().enumerate() {
-        *corner = Vec3::new(
-            if i & 1 == 0 { bounds[0] } else { bounds[3] },
-            if i & 2 == 0 { bounds[1] } else { bounds[4] },
-            if i & 4 == 0 { bounds[2] } else { bounds[5] },
-        );
+/// Six homogeneous clip planes for one view. Construct once per view so the
+/// span loop does not repeatedly extract the same matrix rows.
+#[derive(Clone, Copy)]
+struct ClipFrustum {
+    planes: [[f32; 4]; 6],
+}
+impl ClipFrustum {
+    fn from_matrix(matrix: Mat4) -> Self {
+        let x = matrix.x_axis;
+        let y = matrix.y_axis;
+        let z = matrix.z_axis;
+        let w = matrix.w_axis;
+        Self {
+            planes: [
+                [x.x + x.w, y.x + y.w, z.x + z.w, w.x + w.w],
+                [x.w - x.x, y.w - y.x, z.w - z.x, w.w - w.x],
+                [x.y + x.w, y.y + y.w, z.y + z.w, w.y + w.w],
+                [x.w - x.y, y.w - y.y, z.w - z.y, w.w - w.y],
+                [x.z, y.z, z.z, w.z],
+                [x.w - x.z, y.w - y.z, z.w - z.z, w.w - w.z],
+            ],
+        }
     }
-    let clip = corners.map(|c| matrix * c.extend(1.));
-    !(clip.iter().all(|c| c.x < -c.w)
-        || clip.iter().all(|c| c.x > c.w)
-        || clip.iter().all(|c| c.y < -c.w)
-        || clip.iter().all(|c| c.y > c.w)
-        || clip.iter().all(|c| c.z < 0.)
-        || clip.iter().all(|c| c.z > c.w))
+
+    /// Positive-vertex AABB rejection is equivalent to transforming all eight
+    /// corners, but uses six plane evaluations instead of eight matrix-vector
+    /// products. The tolerance only keeps borderline boxes; it cannot cull
+    /// geometry the previous corner test would retain.
+    fn intersects(self, bounds: [f32; 6]) -> bool {
+        for [a, b, c, d] in self.planes {
+            let px = if a >= 0. { bounds[3] } else { bounds[0] };
+            let py = if b >= 0. { bounds[4] } else { bounds[1] };
+            let pz = if c >= 0. { bounds[5] } else { bounds[2] };
+            let maximum = a * px + b * py + c * pz + d;
+            let scale = a.abs() * bounds[0].abs().max(bounds[3].abs())
+                + b.abs() * bounds[1].abs().max(bounds[4].abs())
+                + c.abs() * bounds[2].abs().max(bounds[5].abs())
+                + d.abs()
+                + 1.;
+            if maximum < -1e-6 * scale {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Conservative bounding-box/frustum test, the viewer's stand-in for the view
+/// call that fills `block+0x74`.
+pub fn in_frustum(matrix: Mat4, bounds: [f32; 6]) -> bool {
+    ClipFrustum::from_matrix(matrix).intersects(bounds)
 }
 
 /// Merge the visible blocks of one view into contiguous index ranges, so a
@@ -240,8 +271,9 @@ pub fn visible_runs(spans: &[Span], matrix: Mat4) -> Vec<(u32, u32)> {
 /// emptied first and refilled in span order.
 pub fn visible_runs_into(spans: &[Span], matrix: Mat4, runs: &mut Vec<(u32, u32)>) {
     runs.clear();
+    let frustum = ClipFrustum::from_matrix(matrix);
     for span in spans {
-        if span.count == 0 || !in_frustum(matrix, span.bounds) {
+        if span.count == 0 || !frustum.intersects(span.bounds) {
             continue;
         }
         match runs.last_mut() {
@@ -255,9 +287,10 @@ pub fn visible_runs_into(spans: &[Span], matrix: Mat4, runs: &mut Vec<(u32, u32)
 /// `visible_runs`; this stays as the standalone census.
 #[allow(dead_code)]
 pub fn visible_blocks(spans: &[Span], matrix: Mat4) -> usize {
+    let frustum = ClipFrustum::from_matrix(matrix);
     spans
         .iter()
-        .filter(|s| s.count != 0 && in_frustum(matrix, s.bounds))
+        .filter(|s| s.count != 0 && frustum.intersects(s.bounds))
         .count()
 }
 
@@ -433,6 +466,74 @@ mod tests {
         assert!(!in_frustum(identity, [2., -0.5, 0.25, 3., 0.5, 0.75]));
         // Straddling the right plane is still drawn.
         assert!(in_frustum(identity, [0.5, -0.5, 0.25, 1.5, 0.5, 0.75]));
+    }
+
+    #[test]
+    fn plane_culling_never_rejects_a_box_kept_by_corner_culling() {
+        let matrices = [
+            Mat4::IDENTITY,
+            Mat4::perspective_rh(65f32.to_radians(), 1.4, 0.1, 500.)
+                * Mat4::look_to_rh(
+                    Vec3::new(3., 7., 12.),
+                    Vec3::new(-0.2, -0.1, -1.).normalize(),
+                    Vec3::Y,
+                ),
+            Mat4::orthographic_rh(30., -30., -20., 20., 200., 1.)
+                * Mat4::look_to_rh(Vec3::new(0., 100., 0.), Vec3::NEG_Y, Vec3::Z),
+        ];
+        for matrix in matrices {
+            for x in -8..8 {
+                for y in -4..4 {
+                    for z in -8..8 {
+                        let bounds = [
+                            x as f32 * 2.,
+                            y as f32 * 2.,
+                            z as f32 * 2.,
+                            x as f32 * 2. + 1.25,
+                            y as f32 * 2. + 1.5,
+                            z as f32 * 2. + 1.75,
+                        ];
+                        let mut corner_visible = false;
+                        for corner in 0..8 {
+                            let point = Vec3::new(
+                                if corner & 1 == 0 {
+                                    bounds[0]
+                                } else {
+                                    bounds[3]
+                                },
+                                if corner & 2 == 0 {
+                                    bounds[1]
+                                } else {
+                                    bounds[4]
+                                },
+                                if corner & 4 == 0 {
+                                    bounds[2]
+                                } else {
+                                    bounds[5]
+                                },
+                            );
+                            let clip = matrix * point.extend(1.);
+                            if clip.x >= -clip.w
+                                && clip.x <= clip.w
+                                && clip.y >= -clip.w
+                                && clip.y <= clip.w
+                                && clip.z >= 0.
+                                && clip.z <= clip.w
+                            {
+                                corner_visible = true;
+                                break;
+                            }
+                        }
+                        if corner_visible {
+                            assert!(
+                                in_frustum(matrix, bounds),
+                                "culled visible bounds: {bounds:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

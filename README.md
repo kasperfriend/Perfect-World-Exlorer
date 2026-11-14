@@ -1,6 +1,6 @@
 # Perfect World Explorer
 
-An experimental, GPU-based, free-flight viewer for the **main world** of a Perfect World 1.4.2 client. It reads world data from a client you provide; it is not a game client, editor, server, or gameplay implementation.
+An experimental, GPU-based, free-flight viewer for a Perfect World 1.4.2 client. It opens the main world by default and can load the client's readable instance maps from **Escape → Teleport List → Change world**. It reads world data from a client you provide; it is not a game client, editor, server, or gameplay implementation.
 
 > **Work in progress:** visual parity is not complete. Water, lighting, sky, vegetation and other systems contain approximations; ordinary animated world models now render with scene lights in main and clipped water passes, but complete model/material coverage and general visual effects remain unfinished. No complete side-by-side game comparison has established parity. See [Findings](Findings/README.md) for evidence, caveats and open work.
 
@@ -14,7 +14,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Authored world effects from the map's own ECWLD records and ECM model events: waterfalls, fire, mist, glows and sun shafts, positioned from the scene, played on the scene clock and textured from `gfx.pck`. A texture that an effect names but the archive lacks draws in its authored vertex colour rather than removing the effect.
 - Client SpeedTree geometry through the client's 32-bit runtime, with sampled leaf motion and approximate LOD; locally streamed grass from client placements and meshes.
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
-- Searchable teleport destinations, original and rendered world maps, a minimap, zone notices, Windows zone music, experimental stereo zone ambience and experimental positional world effects.
+- Searchable teleport destinations, a named world selector for all readable client maps, original and rendered world maps, a minimap, zone notices, Windows zone music, experimental stereo zone ambience and experimental positional world effects.
 - Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample.
 - An optional **Modules** add-on list. **Walker** loads a clothed native player character and supports terrain walking, source-backed run/jump mechanics, and first- or third-person cameras. Its integrated **Character Designer** reads PW 1.4.2 v27 catalogs and native presets, edits body/face/equipment data, saves GBK presets, and rebuilds the same spawned Walker. The executable discovers installed module packages beside itself; modules own their state and do not change persisted core settings.
 
@@ -61,7 +61,7 @@ The executable resolves `Modules` relative to its own location, not the current 
 | Arrow keys | Look |
 | M | Open world map |
 
-Use **Escape → Teleport List** to search destinations. The world map offers original client tiles or a top-down render of the currently loaded world, mouse-wheel zoom, and optional click-to-teleport. Whole-world static objects need to finish loading to appear in the rendered map.
+Use **Escape → Teleport List** to choose a world and search destinations. The drop box at the top shows the currently loaded map and its name; its list contains every readable `maps/<id>` folder, named from the client's own `configs.pck → configs/instance.txt` when available. Select another map and press **Change world**: settings are saved, the viewer starts a fresh instance with `--world <id>`, and that map's terrain, scene, destinations, precincts, minimap tiles and map aspect are loaded. If a selected map returns a load error or panics during startup/rendering, the viewer retries or restarts in the main world, resets the saved selection to `world`, and reports why the fallback occurred. Instance maps are separate coordinate spaces, so main-world `world_targets.txt` rows and the mainland's original full-map tiles are not applied to them. The world map offers original client tiles for the main world or a top-down render of the currently loaded world, mouse-wheel zoom, and optional click-to-teleport. Whole-world static objects need to finish loading to appear in the rendered map.
 
 ### Walker add-on
 
@@ -95,7 +95,7 @@ CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
   cargo build --release --target x86_64-pc-windows-gnu --bin perfect-world-explorer
 ```
 
-The viewer executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge also writes `tree-alpha-refs.csv` into its prepared cache directory, containing the native branch/frond alpha references for each of the 59 tree types and three LODs. `tools/launcher-art.jpg` is embedded at build time.
+The viewer executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge accepts the selected scene's tree-type count and writes only those authored types, so instance maps with fewer (or no) tree types do not attempt to open missing source files. It also writes `tree-alpha-refs.csv` into the prepared cache directory, containing native branch/frond alpha references for each baked tree type and three LODs. `tools/launcher-art.jpg` is embedded at build time.
 
 The executable distributed alongside this source was rebuilt from this packaged snapshot. Native Windows/physical-GPU verification of the latest changes and game-to-viewer image comparison remain outstanding.
 
@@ -110,7 +110,7 @@ The executable distributed alongside this source was rebuilt from this packaged 
 - `cargo run --bin scene-sound-check -- /path/to/element` surveys world sound placements and checks their paths against `sfx.pck`.
 - Some helper binaries and research scripts assume specific test data layouts. Consult their source and [Findings](Findings/README.md) before use.
 
-See [the world-loading optimization report](Findings/World-loading-optimization-2026-11-04.md) for implementation details, regression checks and measurement limits. A 6 GB laptop has not yet been hardware-verified.
+See [the world-loading optimization report](Findings/World-loading-optimization-2026-11-04.md) for implementation details, regression checks and measurement limits. `PW_FRAME_TIMING=1` logs presented FPS and CPU-side frame, surface-acquire, world-submit and minimap-submit timing once per second; GPU execution time is not included. See the [frame-performance audit](Findings/Frame-performance-audit-2026-11-14.md) for the scan findings and remaining candidates. A 6 GB laptop has not yet been hardware-verified.
 
 ## Known limitations
 
@@ -148,13 +148,22 @@ CPU terrain-data budget, not a whole-program or GPU-memory limit.
 - `PW_CACHE_DIR` changes the cache root (the `terrain-v1` namespace is appended).
   Choose a writable local disk with free space. No client files are modified.
 - `PW_TERRAIN_RAM_MIB=1` minimizes the terrain hot set; larger values up to 256
-  trade RAM for fewer page reads. Default: 2. More disk reads are an intentional
-  RAM/latency tradeoff; slow disks can cause streaming stalls.
+  trade RAM for fewer page reads. Default: 32 MiB. Larger hot sets can reduce
+  repeated disk reads while flying, at the cost of RAM.
+- `PW_TERRAIN_THREADS` sets terrain block workers (1..64); by default the viewer
+  detects available parallelism. `PW_LOAD_WORKERS` sets the shared startup worker
+  budget (1..128). Its hardware-derived default uses all logical CPUs reported by
+  the OS and gates terrain compression, world-model loading, and water texture
+  decode together to avoid competing pools each claiming every core. Reduce it if
+  storage contention, memory pressure, thermals, or system responsiveness become
+  an issue. See [the startup parallelism assessment](Findings/Load-parallelism-2026-11-14.md)
+  for GPU and DirectStorage limits; instant loading is not guaranteed.
 - Cache objects are content-addressed and verified; changed client data cannot
-  reuse stale terrain. Incomplete builds are not published. It is safe to delete
-  this derived cache **with the viewer closed**; the next load rebuilds it.
-  Do not distribute cached client data. Source validation and cache construction
-  still run at startup; this is not a promise of faster warm loading.
+  reuse stale terrain. Warm starts skip terrain block decode/recompression and
+  verify pages on demand; source identity is still checked against the client.
+  Incomplete builds are not published. It is safe to delete this derived cache
+  **with the viewer closed**; the next load rebuilds it. Do not distribute cached
+  client data.
 - Decoded static-scenery texture caching now defaults to **32 MiB**, down from
   256. `PW_TEX_BUDGET_MIB` remains available. Textures needed by the active
   batch are pinned and may exceed that budget; no textures are omitted or

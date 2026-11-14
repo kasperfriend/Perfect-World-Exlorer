@@ -29,6 +29,8 @@ mod gfx_light;
 mod gfx_owner;
 #[path = "../gfx_player.rs"]
 mod gfx_player;
+#[path = "../loading_workers.rs"]
+mod loading_workers;
 #[path = "../model_asset.rs"]
 mod model_asset;
 #[path = "../model_attachment.rs"]

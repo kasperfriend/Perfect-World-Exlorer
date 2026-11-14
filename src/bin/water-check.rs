@@ -1,5 +1,8 @@
 //! Inventory the real world water elevations and grid extents.
 #[allow(dead_code)]
+#[path = "../loading_workers.rs"]
+mod loading_workers;
+#[allow(dead_code)]
 #[path = "../pck.rs"]
 mod pck;
 #[allow(dead_code)]

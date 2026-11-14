@@ -90,6 +90,7 @@ impl Pair {
 pub const TILES: usize = 16;
 pub struct Tiles<'a> {
     bytes: &'a [u8],
+    dimension: usize,
     ranges: [(usize, usize); TILES],
 }
 impl<'a> Tiles<'a> {
@@ -104,7 +105,13 @@ impl<'a> Tiles<'a> {
                     .unwrap(),
             ) as usize)
         };
-        if u(0)? != 0x54324c4d || u(4)? != 2 || u(8)? != TILES || u(12)? != 256 || u(16)? != 1 {
+        let dimension = u(12)?;
+        if u(0)? != 0x54324c4d
+            || u(4)? != 2
+            || u(8)? != TILES
+            || !matches!(dimension, 128 | 256)
+            || u(16)? != 1
+        {
             return Err("unsupported T2LM version, tile geometry or DDS flags".into());
         }
         let size = u(20)?;
@@ -123,7 +130,15 @@ impl<'a> Tiles<'a> {
             }
             ranges[i] = (start, end);
         }
-        Ok(Self { bytes, ranges })
+        Ok(Self {
+            bytes,
+            dimension,
+            ranges,
+        })
+    }
+    /// Authored side length of each DDS tile (instance maps may use 128px).
+    pub fn dimension(&self) -> usize {
+        self.dimension
     }
     pub fn tile(&self, i: usize) -> Option<&'a [u8]> {
         self.ranges.get(i).map(|&(a, b)| &self.bytes[a..b])
@@ -245,11 +260,20 @@ mod tests {
     fn independent_offsets_preserve_mask_indices() {
         let b = fixture();
         let t = Tiles::parse(&b).unwrap();
+        assert_eq!(t.dimension(), 256);
         for i in 0..TILES {
             assert_eq!(t.tile(i).unwrap(), [i as u8; 4]);
         }
         assert!(t.tile(TILES).is_none());
     }
+    #[test]
+    fn accepts_128px_instance_lightmaps() {
+        let mut bytes = fixture();
+        bytes[12..16].copy_from_slice(&128u32.to_le_bytes());
+        let tiles = Tiles::parse(&bytes).unwrap();
+        assert_eq!(tiles.dimension(), 128);
+    }
+
     #[test]
     fn rejects_invalid_headers_ranges_and_overlap() {
         let original = fixture();
@@ -260,7 +284,8 @@ mod tests {
             (0, 0),
             (4, 3),
             (8, 15),
-            (12, 128),
+            (12, 64),
+            (12, 512),
             (16, 0),
             (16, 3),
             (20, 0),

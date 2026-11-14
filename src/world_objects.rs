@@ -64,6 +64,9 @@ pub fn fold_commands(pages: &[PageSpans], order: &[(usize, usize)], view: Pass) 
             }
             (r.start, r.end)
         };
+        if start == end {
+            continue;
+        }
         if let Some(last) = cmds.last_mut() {
             if last.page == page && last.end == start {
                 last.end = end;
@@ -86,6 +89,9 @@ fn fold_page_spans(placements: &[PlacementRange], view: Pass) -> Vec<(u32, u32)>
     let mut spans: Vec<(u32, u32)> = Vec::with_capacity(placements.len());
     for r in placements {
         if !allows_with_context(view, r.visibility, RenderContext::default()) {
+            continue;
+        }
+        if r.start == r.end {
             continue;
         }
         match spans.last_mut() {
@@ -173,13 +179,16 @@ impl Page {
 }
 /// Measured residency and resolution outcome of one whole-world preload
 /// (P3.08: measured numbers, not estimates).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct DoneStats {
     pub residency: crate::objects::ResidencyStats,
     pub resolver: crate::texture_resolution::ResolverStats,
     /// Register rows recorded for references that resolved nowhere or were
     /// rejected by name (.sdr. shader registry, decode failures, missing).
     pub unresolved_rows: usize,
+    /// Distinct BMD assets that could not be opened or parsed. Placements using
+    /// these assets do not produce geometry and must remain visible in the UI.
+    pub unavailable_models: Vec<String>,
     /// Pages emitted by this preload.
     pub pages: usize,
     pub atlas_pages: usize,
@@ -523,6 +532,7 @@ fn run(
             residency: objects.residency(),
             resolver: objects.resolver_stats(),
             unresolved_rows: objects.unresolved().len(),
+            unavailable_models: objects.unavailable_models(),
             pages,
             atlas_pages,
             atlas_bytes,
@@ -530,10 +540,48 @@ fn run(
     });
     Ok(())
 }
+fn sdr_band(kind: f32) -> bool {
+    (kind > 2.01 && kind < 2.03) || (kind > 2.11 && kind < 2.13)
+}
+
+pub(crate) fn filter_sdr_indices(
+    vertices: &[Vertex],
+    indices: &[u32],
+    range: std::ops::Range<u32>,
+) -> Vec<u32> {
+    let mut out = Vec::new();
+    append_sdr_triangles(vertices, indices, range, &mut out);
+    out
+}
+
+fn append_sdr_triangles(
+    vertices: &[Vertex],
+    indices: &[u32],
+    range: std::ops::Range<u32>,
+    out: &mut Vec<u32>,
+) {
+    for triangle in indices[range.start as usize..range.end as usize].chunks_exact(3) {
+        // The vertex shader passes `kind` flat. Baked meshes use one kind for
+        // every vertex, but include a mixed triangle conservatively so this
+        // CPU filter can never hide a fragment the SDR shader would keep.
+        let contains_sdr = triangle.iter().any(|&index| {
+            vertices
+                .get(index as usize)
+                .map_or(true, |vertex| sdr_band(vertex.kind))
+        });
+        if contains_sdr {
+            out.extend_from_slice(triangle);
+        }
+    }
+}
+
 pub struct GpuPage {
     vertex: wgpu::Buffer,
     index: wgpu::Buffer,
     count: u32,
+    sdr_index: wgpu::Buffer,
+    sdr_count: u32,
+    sdr_placements: Vec<PlacementRange>,
     normal: Arc<wgpu::BindGroup>,
     reflected: Arc<wgpu::BindGroup>,
     placements: Vec<PlacementRange>,
@@ -667,10 +715,48 @@ impl GpuPage {
             contents: bytemuck::cast_slice(&page.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let mut sdr_indices = Vec::new();
+        let mut sdr_placements = Vec::with_capacity(page.placements.len());
+        if page.placements.is_empty() {
+            append_sdr_triangles(
+                &page.vertices,
+                &page.indices,
+                0..page.indices.len() as u32,
+                &mut sdr_indices,
+            );
+        } else {
+            for placement in &page.placements {
+                let start = sdr_indices.len() as u32;
+                append_sdr_triangles(
+                    &page.vertices,
+                    &page.indices,
+                    placement.start..placement.end,
+                    &mut sdr_indices,
+                );
+                let mut filtered = placement.clone();
+                filtered.start = start;
+                filtered.end = sdr_indices.len() as u32;
+                sdr_placements.push(filtered);
+            }
+        }
+        let sdr_count = sdr_indices.len() as u32;
+        let sdr_contents = if sdr_indices.is_empty() {
+            &[0u32][..]
+        } else {
+            &sdr_indices
+        };
+        let sdr_index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("whole-world SDR curtain indices"),
+            contents: bytemuck::cast_slice(sdr_contents),
+            usage: wgpu::BufferUsages::INDEX,
+        });
         Self {
             vertex,
             index,
             count: page.indices.len() as u32,
+            sdr_index,
+            sdr_count,
+            sdr_placements,
             normal,
             reflected,
             placements: page.placements,
@@ -705,6 +791,40 @@ impl GpuPage {
             pass.draw_indexed(start..end, 0, 0..1);
         }
     }
+    pub fn has_sdr(&self) -> bool {
+        self.sdr_count != 0
+    }
+    /// Draw only `.sdr.` curtain triangles. Their relative placement/mesh order
+    /// is unchanged; non-curtain indices are excluded rather than sent through
+    /// a second vertex/fragment pass just to be discarded by `fs_sdr`.
+    pub fn draw_selected_sdr<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        reflected: bool,
+        view: Pass,
+    ) {
+        if self.sdr_count == 0 {
+            return;
+        }
+        pass.set_bind_group(
+            0,
+            if reflected {
+                &self.reflected
+            } else {
+                &self.normal
+            },
+            &[],
+        );
+        pass.set_vertex_buffer(0, self.vertex.slice(..));
+        pass.set_index_buffer(self.sdr_index.slice(..), wgpu::IndexFormat::Uint32);
+        if self.placements.is_empty() {
+            pass.draw_indexed(0..self.sdr_count, 0, 0..1);
+            return;
+        }
+        for (start, end) in fold_page_spans(&self.sdr_placements, view) {
+            pass.draw_indexed(start..end, 0, 0..1);
+        }
+    }
     /// Freeze the original submission sequence once loading is complete.
     /// Texture sharing changes storage, never coplanar/depth-tie winners.
     pub fn draw_order(pages: &[Self]) -> Vec<(usize, usize)> {
@@ -735,6 +855,17 @@ impl GpuPage {
             .collect();
         fold_commands(&spans, order, view)
     }
+    /// Curtain-only command list, built once alongside the opaque page lists.
+    pub fn sdr_draw_commands(pages: &[Self], order: &[(usize, usize)], view: Pass) -> Vec<DrawCmd> {
+        let spans: Vec<PageSpans> = pages
+            .iter()
+            .map(|p| PageSpans {
+                count: p.sdr_count,
+                placements: &p.sdr_placements,
+            })
+            .collect();
+        fold_commands(&spans, order, view)
+    }
     /// The command lists the viewer keeps for the whole-world pages: the main
     /// (unfiltered) list, then the reflection and refraction gates.
     pub fn world_commands(pages: &[Self]) -> [Vec<DrawCmd>; WORLD_VIEWS] {
@@ -743,6 +874,14 @@ impl GpuPage {
             Self::draw_commands(pages, &order, Pass::Main),
             Self::draw_commands(pages, &order, Pass::Reflection),
             Self::draw_commands(pages, &order, Pass::Refraction),
+        ]
+    }
+    pub fn world_sdr_commands(pages: &[Self]) -> [Vec<DrawCmd>; WORLD_VIEWS] {
+        let order = Self::draw_order(pages);
+        [
+            Self::sdr_draw_commands(pages, &order, Pass::Main),
+            Self::sdr_draw_commands(pages, &order, Pass::Reflection),
+            Self::sdr_draw_commands(pages, &order, Pass::Refraction),
         ]
     }
     /// Which `world_commands` list a pass reads. Fog, minimap and full-map see
@@ -773,6 +912,24 @@ impl GpuPage {
             pass.draw_indexed(cmd.start..cmd.end, 0, 0..1);
         }
     }
+    pub fn draw_world_sdr<'a>(
+        pages: &'a [Self],
+        cmds: &[DrawCmd],
+        pass: &mut wgpu::RenderPass<'a>,
+        reflected: bool,
+    ) {
+        let mut bound = None;
+        for cmd in cmds {
+            let p = &pages[cmd.page];
+            if bound != Some(cmd.page) {
+                pass.set_bind_group(0, if reflected { &p.reflected } else { &p.normal }, &[]);
+                pass.set_vertex_buffer(0, p.vertex.slice(..));
+                pass.set_index_buffer(p.sdr_index.slice(..), wgpu::IndexFormat::Uint32);
+                bound = Some(cmd.page);
+            }
+            pass.draw_indexed(cmd.start..cmd.end, 0, 0..1);
+        }
+    }
     /// Convenience wrapper for callers that hold the raw order (the atlas
     /// check): build the view's commands, then draw them.
     pub fn draw_ordered<'a>(
@@ -796,6 +953,34 @@ impl GpuPage {
 #[cfg(test)]
 mod page_tests {
     use super::*;
+
+    #[test]
+    fn sdr_index_filter_keeps_only_curtain_triangles_in_order() {
+        let kinds = [
+            2.0, 2.0, 2.0, // ordinary opaque triangle
+            2.02, 2.02, 2.02, // water curtain
+            2.12, 2.12, 2.12, // lava curtain
+            2.0, 2.02, 2.0, // mixed flat-kind input: conservatively retained
+        ];
+        let vertices: Vec<_> = kinds
+            .into_iter()
+            .map(|kind| Vertex {
+                pos: [0.; 3],
+                normal: [0., 1., 0.],
+                uv: [0.; 2],
+                color: [0.; 4],
+                kind,
+                diffuse: 0,
+                night_diffuse: 0,
+            })
+            .collect();
+        let indices: Vec<u32> = (0..12).collect();
+        assert_eq!(
+            filter_sdr_indices(&vertices, &indices, 0..12),
+            (3..12).collect::<Vec<_>>()
+        );
+    }
+
     fn solid(fill: u8, side: usize) -> crate::objects::Texture {
         crate::objects::Texture {
             width: side,

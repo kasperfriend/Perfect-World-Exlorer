@@ -3,8 +3,58 @@ use flate2::read::ZlibDecoder;
 use std::{
     env, fs,
     io::{self, BufWriter, Read, Write},
+    panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
 };
+
+static RECOVERABLE_MAP_OPERATION: AtomicBool = AtomicBool::new(false);
+
+fn recoverable_map_operation<T>(operation: impl FnOnce() -> T) -> Result<T, String> {
+    RECOVERABLE_MAP_OPERATION.store(true, Ordering::SeqCst);
+    let result = catch_unwind(AssertUnwindSafe(operation));
+    RECOVERABLE_MAP_OPERATION.store(false, Ordering::SeqCst);
+    result.map_err(|payload| {
+        let message = payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+            .unwrap_or_else(|| "unknown panic during map loading".into());
+        format!("unexpected error while loading/rendering the selected map: {message}")
+    })
+}
+
+/// Attempt the selected map once; if it returns an error or panics, retry the
+/// main world. This keeps an unsupported instance from pinning the user on a
+/// broken startup screen and makes the fallback policy testable without a game client.
+fn load_with_main_world_fallback<T>(
+    preferred: &str,
+    mut load: impl FnMut(&str) -> Result<T, String>,
+) -> Result<(T, Option<String>), String> {
+    let attempt = |id: &str, load: &mut dyn FnMut(&str) -> Result<T, String>| {
+        match recoverable_map_operation(|| load(id))? {
+            Ok(value) => Ok(value),
+            Err(error) => Err(error),
+        }
+    };
+    match attempt(preferred, &mut load) {
+        Ok(value) => Ok((value, None)),
+        Err(first_error) if !preferred.eq_ignore_ascii_case("world") => {
+            match attempt("world", &mut load) {
+                Ok(value) => Ok((
+                    value,
+                    Some(format!(
+                        "Could not load map {preferred}; returned to the main world.\n\n{first_error}"
+                    )),
+                )),
+                Err(main_error) => Err(format!(
+                    "Could not load map {preferred} ({first_error}), and the main world fallback also failed ({main_error})."
+                )),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
 
 fn u32at(b: &[u8], i: usize) -> Result<u32, String> {
     let s = b.get(i..i + 4).ok_or("truncated data")?;
@@ -80,6 +130,7 @@ mod indirect_args;
 #[cfg(windows)]
 mod launcher_ui;
 mod light_consumers;
+mod loading_workers;
 mod material;
 mod model_asset;
 mod model_attachment;
@@ -155,12 +206,16 @@ mod water_gpu;
 mod weather_gpu;
 #[cfg(windows)]
 mod windows_setup;
+mod world_catalog;
+mod world_handoff;
 mod world_models;
 mod world_models_gpu;
 mod world_objects;
 struct Terrain {
+    /// The loaded client world/map, including its authored name and directory.
+    map: world_catalog::WorldMap,
     element: PathBuf,
-    /// Cells per T2BK block edge (`world.trn2` header dword @20).
+    /// Cells per T2BK block edge (`<map>.trn2` header dword @20).
     grid: usize,
     width: usize,
     height: usize,
@@ -188,6 +243,182 @@ struct Terrain {
     cloud_surface: Option<std::sync::Arc<cloud_surface::CloudSurface>>,
 }
 
+/// Non-terrain client assets are independent of TRN2 block decoding. Load them
+/// concurrently so archive parsing, SpeedTree cache work, and scene decoding
+/// overlap the terrain pipeline instead of extending it serially.
+struct WorldAssets {
+    scene: std::sync::Arc<scene::Scene>,
+    cloud_surface: Option<std::sync::Arc<cloud_surface::CloudSurface>>,
+    water: Vec<water::WaterArea>,
+    objects: objects::Objects,
+    models: world_models::Assets,
+    grass: grass::Grass,
+    trees: trees::Trees,
+    environments: environment::Environments,
+    scene_lights: std::sync::Arc<scene_lights::SceneLights>,
+}
+
+fn load_world_assets(
+    map: &world_catalog::WorldMap,
+    dir: &Path,
+    element: &Path,
+    width: usize,
+    height: usize,
+    grid_spacing: f32,
+) -> Result<WorldAssets, String> {
+    let scene_path = map.file("ecwld");
+    let world_scene = std::sync::Arc::new(scene::Scene::load(&scene_path)?);
+    if (world_scene.width - width as f32 * grid_spacing).abs() > 0.1
+        || (world_scene.length - height as f32 * grid_spacing).abs() > 0.1
+    {
+        return Err("ECWLD and TRN2 world dimensions differ".into());
+    }
+    let cloud_path = map.file("cld");
+    let cloud_surface = match fs::read(&cloud_path) {
+        Ok(bytes) => {
+            let cloud = cloud_surface::parse(&bytes)
+                .map_err(|e| format!("{}: {e}", cloud_path.display()))?;
+            let (cells, vertices, groups, indices) = cloud.cells.iter().flatten().fold(
+                (0usize, 0usize, 0usize, 0usize),
+                |(cells, vertices, groups, indices), cell| {
+                    (
+                        cells + usize::from(!cell.vertices.is_empty()),
+                        vertices + cell.vertices.len(),
+                        groups + cell.groups.len(),
+                        indices + cell.groups.iter().map(|g| g.indices.len()).sum::<usize>(),
+                    )
+                },
+            );
+            eprintln!("Loaded native MOXB cloud grid {}x{}: {cells} populated cells, {vertices} vertices, {groups} groups, {indices} indices", cloud.width, cloud.height);
+            Some(std::sync::Arc::new(cloud))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "{} unavailable; native cloud surface omitted",
+                cloud_path.display()
+            );
+            None
+        }
+        Err(e) => return Err(format!("{}: {e}", cloud_path.display())),
+    };
+
+    let ornaments = world_scene.load_ornaments(&map.file("ecbsd"))?;
+    eprintln!(
+        "Loaded {} unique world ornament placements; nearby BMD meshes will stream during flight",
+        ornaments.len()
+    );
+    let tree_count: usize = world_scene.blocks.iter().map(|b| b.trees.len()).sum();
+    let model_count: usize = world_scene.blocks.iter().map(|b| b.models.len()).sum();
+    eprintln!("Loaded scene placements: {tree_count} trees, {model_count} EC models");
+    let placements: Vec<_> = world_scene
+        .blocks
+        .iter()
+        .flat_map(|b| b.models.iter().cloned())
+        .collect();
+
+    // These asset groups read independent sources and do not depend on decoded
+    // terrain heights. Keep their original output intact, but let archives,
+    // tree caches and BSData work concurrently while terrain is also decoding.
+    let (water, objects, models, grass, trees, environments, scene_lights) = std::thread::scope(
+        |scope| -> Result<_, String> {
+            let water_worker = scope.spawn(|| water::load(&world_scene, dir));
+            let objects_worker = scope.spawn(move || objects::Objects::open(element, ornaments));
+            let models_worker = scope.spawn(move || {
+                let models = match world_models::Assets::open(element, placements.clone()) {
+                    Ok(models) => models,
+                    Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
+                };
+                eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (ordinary animated submission enabled unless PW_DISABLE_WORLD_MODELS is set)", models.assets.len(), models.instances.len(), models.unloaded.len());
+                for failure in &models.failures {
+                    eprintln!("EC model dependency: {failure}");
+                }
+                Ok::<_, String>(models)
+            });
+            let grass_worker = scope.spawn(|| grass::Grass::load(&world_scene, dir, element));
+            let tree_worker = scope.spawn(|| -> Result<trees::Trees, String> {
+                #[cfg(windows)]
+                windows_setup::loading_progress("Preparing trees (first run may take several minutes)...".into());
+                let tree_cache = if let Some(cache) = std::env::var_os("PW_TREE_CACHE") {
+                    PathBuf::from(cache)
+                } else {
+                    #[cfg(windows)]
+                    {
+                        windows_setup::prepare_trees_for_scene(element, &scene_path, world_scene.tree_types.len())?
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        PathBuf::from("tree-cache")
+                    }
+                };
+                let trees = trees::Trees::open(element, &world_scene, &tree_cache)?;
+                #[cfg(windows)]
+                if std::env::var_os("PW_TREE_CACHE").is_none() && trees.types.iter().any(|tree| tree.is_none()) {
+                    return Err(format!("Some prepared tree types could not be loaded. Close Perfect World Explorer, remove this cache folder, and try again:\n{}", tree_cache.display()));
+                }
+                Ok(trees)
+            });
+            let regional_worker = scope.spawn(|| {
+                let environments = environment::Environments::load(&world_scene, dir)?;
+                // Ordinary world-model receivers query these client records;
+                // static scenery keeps its separately traced baked-light path.
+                let lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
+                    Ok(lights) => {
+                        eprintln!(
+                            "Loaded {} client scene lights (static query only)",
+                            lights.lights.len()
+                        );
+                        lights
+                    }
+                    Err(e) => {
+                        eprintln!("Scene lights unavailable: {e}");
+                        scene_lights::SceneLights::default()
+                    }
+                };
+                Ok::<_, String>((environments, std::sync::Arc::new(lights)))
+            });
+
+            let water = water_worker
+                .join()
+                .map_err(|_| "water-area loader panicked")??;
+            eprintln!(
+                "Loaded {} water areas from client BSData grids",
+                water.len()
+            );
+            let objects = objects_worker
+                .join()
+                .map_err(|_| "scenery object archive loader panicked")??;
+            let models = models_worker
+                .join()
+                .map_err(|_| "EC model archive loader panicked")??;
+            let grass = grass_worker.join().map_err(|_| "grass loader panicked")??;
+            let trees = tree_worker.join().map_err(|_| "tree loader panicked")??;
+            let (environments, scene_lights) = regional_worker
+                .join()
+                .map_err(|_| "regional world loader panicked")??;
+            Ok((
+                water,
+                objects,
+                models,
+                grass,
+                trees,
+                environments,
+                scene_lights,
+            ))
+        },
+    )?;
+    Ok(WorldAssets {
+        scene: world_scene,
+        cloud_surface,
+        water,
+        objects,
+        models,
+        grass,
+        trees,
+        environments,
+        scene_lights,
+    })
+}
+
 /// Everything one tile needs to decode its blocks: the tile's own bytes plus the
 /// shared tables. Bundled so a worker only needs a borrow of it.
 struct TileDecode<'a> {
@@ -202,9 +433,14 @@ struct TileDecode<'a> {
     blocks: usize,
 }
 
-/// One decoded block on its way back from a worker: its index in the tile and,
-/// when the decode succeeded, the `grid * grid` arrays.
-type BlockPayload = (usize, Result<(Vec<f32>, Vec<[i8; 3]>), String>);
+/// Decoded terrain data returned by the block workers. Paged builds compress
+/// each block on the worker; resident builds keep the raw arrays for direct copy.
+enum PreparedTerrainBlock {
+    Resident(Vec<f32>, Vec<[i8; 3]>),
+    Paged(terrain_store::PackedBlock),
+}
+
+type BlockPayload = (usize, Result<PreparedTerrainBlock, String>);
 
 /// Per-block scratch, owned by whoever decodes a block.
 ///
@@ -243,9 +479,27 @@ fn decode_block_owned(
 /// so the builder sees a bit-identical sequence to the old sequential loop.
 /// `insert` runs on the calling thread, which is why the builder needs no
 /// locking. `PW_TERRAIN_THREADS=1` restores the plain loop.
-fn decode_blocks<F>(tile: &TileDecode, threads: usize, mut insert: F) -> Result<(), String>
+fn prepare_terrain_block(
+    heights: Vec<f32>,
+    normals: Vec<[i8; 3]>,
+    side: usize,
+    paged: bool,
+) -> Result<PreparedTerrainBlock, String> {
+    if paged {
+        terrain_store::prepare_block(&heights, &normals, side).map(PreparedTerrainBlock::Paged)
+    } else {
+        Ok(PreparedTerrainBlock::Resident(heights, normals))
+    }
+}
+
+fn decode_blocks<F>(
+    tile: &TileDecode,
+    threads: usize,
+    paged: bool,
+    mut insert: F,
+) -> Result<(), String>
 where
-    F: FnMut(usize, &[f32], &[[i8; 3]]) -> Result<(), String>,
+    F: FnMut(usize, PreparedTerrainBlock) -> Result<(), String>,
 {
     if tile.blocks == 0 {
         return Ok(());
@@ -253,13 +507,19 @@ where
     if threads.min(tile.blocks) <= 1 {
         let mut scratch = BlockScratch::default();
         for bi in 0..tile.blocks {
-            decode_block(tile, &mut scratch, bi)?;
-            insert(bi, &scratch.heights, &scratch.normals)?;
+            let (heights, normals) = decode_block_owned(tile, &mut scratch, bi)?;
+            insert(
+                bi,
+                prepare_terrain_block(heights, normals, tile.grid, paged)?,
+            )?;
         }
         return Ok(());
     }
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let (tx, rx) = std::sync::mpsc::channel::<BlockPayload>();
+    // Backpressure keeps out-of-order completed block arrays bounded when an
+    // early block is unusually slow, instead of retaining most of a tile in RAM.
+    let capacity = threads.min(tile.blocks).saturating_mul(2).max(1);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<BlockPayload>(capacity);
     std::thread::scope(|scope| -> Result<(), String> {
         for _ in 0..threads.min(tile.blocks) {
             let tx = tx.clone();
@@ -271,7 +531,12 @@ where
                     if bi >= tile.blocks {
                         break;
                     }
-                    let decoded = decode_block_owned(tile, &mut scratch, bi);
+                    let decoded = {
+                        let _permit = crate::loading_workers::acquire();
+                        decode_block_owned(tile, &mut scratch, bi).and_then(|(heights, normals)| {
+                            prepare_terrain_block(heights, normals, tile.grid, paged)
+                        })
+                    };
                     let failed = decoded.is_err();
                     if tx.send((bi, decoded)).is_err() || failed {
                         break;
@@ -292,8 +557,8 @@ where
                 }
                 Err(e) => return Err(e),
             }
-            while let Some((heights, normals)) = pending.remove(&next_expected) {
-                insert(next_expected, &heights, &normals)?;
+            while let Some(block) = pending.remove(&next_expected) {
+                insert(next_expected, block)?;
                 next_expected += 1;
                 if next_expected >= tile.blocks {
                     break;
@@ -475,17 +740,28 @@ fn decode_block(tile: &TileDecode, scratch: &mut BlockScratch, bi: usize) -> Res
 /// the fully decoded terrain grid (no disk paging, no block decode) instead of
 /// the paged cache, which is much faster at load and while flying and uses the
 /// whole grid in RAM.
-fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
-    let dir = if root.join("element/maps/world/world.trn2").is_file() {
-        root.join("element/maps/world")
-    } else if root.join("maps/world/world.trn2").is_file() {
-        root.join("maps/world")
-    } else if root.join("world.trn2").is_file() {
-        root.to_path_buf()
-    } else {
-        return Err("expected client root, element folder, or maps/world directory".into());
-    };
-    let t = fs::read(dir.join("world.trn2")).map_err(|e| e.to_string())?;
+fn terrain(
+    root: &Path,
+    all_to_vram: bool,
+    preferred_world: Option<&str>,
+) -> Result<Terrain, String> {
+    let map = world_catalog::resolve(root, preferred_world)?;
+    let dir = map.dir.clone();
+    let element = map.element.clone();
+    eprintln!(
+        "Loading world {} ({}) from {}",
+        map.display_name,
+        map.id,
+        dir.display()
+    );
+    eprintln!(
+        "Startup CPU worker budget: {} logical CPUs (PW_LOAD_WORKERS may override)",
+        crate::loading_workers::worker_limit()
+    );
+    #[cfg(windows)]
+    windows_setup::loading_progress(format!("Loading {}...", map.label()));
+    let terrain_path = map.file("trn2");
+    let t = fs::read(&terrain_path).map_err(|e| format!("{}: {e}", terrain_path.display()))?;
     if u32at(&t, 0)? != 0x54524e32 || u32at(&t, 4)? > 1 {
         return Err("unsupported TRN2".into());
     }
@@ -522,6 +798,22 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
     if w * h > 100_000_000 {
         return Err("terrain too large".into());
     }
+    let assets_map = map.clone();
+    let assets_dir = dir.clone();
+    let assets_element = element.clone();
+    let world_asset_worker = std::thread::Builder::new()
+        .name("world-asset-load".into())
+        .spawn(move || {
+            load_world_assets(
+                &assets_map,
+                &assets_dir,
+                &assets_element,
+                w,
+                h,
+                grid_spacing,
+            )
+        })
+        .map_err(|e| format!("cannot start world asset loader: {e}"))?;
     let mut pos = loff + 4;
     let mut names = Vec::new();
     for _ in 0..count {
@@ -536,22 +828,59 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
     // * All to VRAM keeps the decoded grid in memory and never writes a cache.
     // * Otherwise the warm-start index is tried first; a hit skips the block
     //   decode and the whole recompression pass, and only a miss builds pages.
-    let identity = if all_to_vram {
-        String::new()
+    let (identity, mut cold_identity, cached) = if all_to_vram {
+        (None, None, None)
+    } else if terrain_store::might_have_warm_cache(&cache_root) {
+        let identity = terrain_store::source_identity(&t, &dir, &names)?;
+        let cached =
+            terrain_store::restore(&cache_root, &identity, w, h, grid, terrain_store::budget())?;
+        (Some(identity), None, cached)
     } else {
-        terrain_store::source_identity(&t, &dir, &names)?
+        // First-ever terrain load: do not read every source tile once for its
+        // identity and again for decode. Hash each tile's already-loaded bytes
+        // during the mandatory decode pass, then publish the same warm index.
+        eprintln!("Cold terrain build: folding cache identity into tile reads");
+        (
+            None,
+            Some(terrain_store::SourceIdentity::new(&t, &dir)),
+            None,
+        )
     };
-    let cached = if all_to_vram {
-        None
-    } else {
-        terrain_store::restore(&cache_root, &identity, w, h, grid, terrain_store::budget())?
-    };
+    // Independent texture-bank work can run alongside the terrain block
+    // decode. The selected sequences are immutable and produce the same mip
+    // chains as the former serial loader, while the existing progress window
+    // continues to report terrain tile progress.
+    let water_element = element.clone();
+    let water_texture_worker = std::thread::Builder::new()
+        .name("water-texture-load".into())
+        .spawn(move || water::load_sequences(&water_element))
+        .map_err(|e| format!("cannot start water texture loader: {e}"))?;
+    let material_dir = dir.clone();
+    let material_trn = t.clone();
+    let material_names = names.clone();
+    let material_worker = std::thread::Builder::new()
+        .name("terrain-material-load".into())
+        .spawn(move || {
+            material::Materials::load(
+                &material_dir,
+                &material_trn,
+                &material_names,
+                w,
+                h,
+                grid_spacing,
+            )
+        })
+        .map_err(|e| format!("cannot start terrain material loader: {e}"))?;
     let mut terrain_pages = if cached.is_some() {
         None
     } else if all_to_vram {
         Some(terrain_store::Builder::new_resident(w, h, grid)?)
     } else {
-        Some(terrain_store::Builder::new(&cache_root, w, h, grid)?.with_identity(&identity))
+        let mut builder = terrain_store::Builder::new(&cache_root, w, h, grid)?;
+        if let Some(identity) = &identity {
+            builder.set_identity(identity);
+        }
+        Some(builder)
     };
     // Colour sections are validated per block below. Neither current CPU nor
     // GPU renderer consumes them; do not allocate a second world-sized RGBA grid.
@@ -575,61 +904,107 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                 .unwrap_or(1)
         });
     // A warm start already owns the grid, so the block loop is skipped entirely.
+    // On a cold build, keep one bounded read-ahead tile in flight: the next file
+    // read overlaps the current tile's parallel decompression without retaining
+    // the full map's compressed bytes or changing builder insertion order.
     if terrain_pages.is_some() {
-        for (si, name) in names.iter().enumerate() {
-            if name.contains('/') || name.contains('\\') || name.contains("..") {
-                return Err("unsafe subterrain path".into());
-            }
-            let data =
-                fs::read(dir.join(format!("{name}.t2bk"))).map_err(|e| format!("{name}: {e}"))?;
-            if u32at(&data, 0)? != 0x54424b42 {
-                return Err(format!("{name}: invalid T2BK"));
-            };
-            let v = u32at(&data, 4)?;
-            if !(2..=6).contains(&v) {
-                return Err(format!("{name}: unsupported version {v}"));
-            }
-            let n = u32at(&data, 8)? as usize;
-            if n < per * per {
-                return Err(format!("{name}: missing blocks"));
-            };
-            let flags = if v < 5 {
-                if data[12] != 0 {
-                    0x15
-                } else {
-                    0
+        std::thread::scope(|scope| -> Result<(), String> {
+            let (send, receive) =
+                std::sync::mpsc::sync_channel::<(usize, String, Result<Vec<u8>, String>)>(1);
+            let reader_dir = dir.clone();
+            let reader_names = &names;
+            scope.spawn(move || {
+                for (si, name) in reader_names.iter().enumerate() {
+                    let result = if name.contains('/') || name.contains('\\') || name.contains("..")
+                    {
+                        Err("unsafe subterrain path".to_string())
+                    } else {
+                        fs::read(reader_dir.join(format!("{name}.t2bk")))
+                            .map_err(|e| format!("{name}: {e}"))
+                    };
+                    let failed = result.is_err();
+                    if send.send((si, name.clone(), result)).is_err() || failed {
+                        break;
+                    }
                 }
-            } else {
-                data[12]
-            };
-            // Validate the whole offset table and section layout before reading any
-            // heights: this is what catches a flags bit the reader does not implement,
-            // and it is what found the missing per-vertex colour section.
-            let block_layout =
-                terrain_block::layout(&data, grid).map_err(|e| format!("{name}: {e}"))?;
-            let tile = TileDecode {
-                data: &data,
-                name,
-                version: v,
-                flags,
-                layout: &block_layout,
-                grid,
-                sin_table: &sin_table,
-                cos_table: &cos_table,
-                blocks: per * per,
-            };
-            decode_blocks(&tile, threads, |bi, heights, normals| {
-                let br = (si / subs_x) * per + bi / per;
-                let bc = (si % subs_x) * per + bi % per;
-                terrain_pages
-                    .as_mut()
-                    .expect("terrain builder present while parsing blocks")
-                    .block(bc, br, heights, normals)
-            })?;
-            eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
-            #[cfg(windows)]
-            windows_setup::loading_progress(format!("Loading terrain tiles {}/{}", si + 1, count));
-        }
+            });
+            for expected in 0..count {
+                let (si, name, data) = receive
+                    .recv()
+                    .map_err(|_| "terrain tile reader stopped early".to_string())?;
+                if si != expected {
+                    return Err("terrain tile reader returned out of order".into());
+                }
+                let data = data?;
+                if let Some(identity) = &mut cold_identity {
+                    identity.add_tile(&name, &data);
+                }
+                if u32at(&data, 0)? != 0x54424b42 {
+                    return Err(format!("{name}: invalid T2BK"));
+                };
+                let v = u32at(&data, 4)?;
+                if !(2..=6).contains(&v) {
+                    return Err(format!("{name}: unsupported version {v}"));
+                }
+                let n = u32at(&data, 8)? as usize;
+                if n < per * per {
+                    return Err(format!("{name}: missing blocks"));
+                };
+                let flags = if v < 5 {
+                    if data[12] != 0 {
+                        0x15
+                    } else {
+                        0
+                    }
+                } else {
+                    data[12]
+                };
+                // Validate the whole offset table and section layout before reading any
+                // heights: this is what catches a flags bit the reader does not implement,
+                // and it is what found the missing per-vertex colour section.
+                let block_layout =
+                    terrain_block::layout(&data, grid).map_err(|e| format!("{name}: {e}"))?;
+                let tile = TileDecode {
+                    data: &data,
+                    name: &name,
+                    version: v,
+                    flags,
+                    layout: &block_layout,
+                    grid,
+                    sin_table: &sin_table,
+                    cos_table: &cos_table,
+                    blocks: per * per,
+                };
+                decode_blocks(&tile, threads, !all_to_vram, |bi, block| {
+                    let br = (si / subs_x) * per + bi / per;
+                    let bc = (si % subs_x) * per + bi % per;
+                    let builder = terrain_pages
+                        .as_mut()
+                        .expect("terrain builder present while parsing blocks");
+                    match block {
+                        PreparedTerrainBlock::Resident(heights, normals) => {
+                            builder.block(bc, br, &heights, &normals)
+                        }
+                        PreparedTerrainBlock::Paged(packed) => builder.block_packed(bc, br, packed),
+                    }
+                })?;
+                eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
+                #[cfg(windows)]
+                windows_setup::loading_progress(format!(
+                    "Loading terrain tiles {}/{}",
+                    si + 1,
+                    count
+                ));
+            }
+            Ok(())
+        })?;
+    }
+    if let Some(identity) = cold_identity.take() {
+        let identity = identity.finish();
+        terrain_pages
+            .as_mut()
+            .expect("cold terrain build owns a page writer")
+            .set_identity(&identity);
     }
     #[cfg(windows)]
     windows_setup::loading_progress("Loading world scenery and water...".into());
@@ -638,121 +1013,38 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
         (None, Some(pages)) => pages.finish(terrain_store::budget())?,
         (None, None) => return Err("terrain cache was not built".into()),
     };
-    let world_scene = scene::Scene::load(&dir.join("world.ecwld"))?;
-    let cloud_surface = match fs::read(dir.join("world.cld")) {
-        Ok(bytes) => {
-            let cloud = cloud_surface::parse(&bytes).map_err(|e| format!("world.cld: {e}"))?;
-            let (cell_count, vertex_count, group_count, index_count) =
-                cloud.cells.iter().flatten().fold(
-                    (0usize, 0usize, 0usize, 0usize),
-                    |(cells, vertices, groups, indices), cell| {
-                        (
-                            cells + usize::from(!cell.vertices.is_empty()),
-                            vertices + cell.vertices.len(),
-                            groups + cell.groups.len(),
-                            indices + cell.groups.iter().map(|g| g.indices.len()).sum::<usize>(),
-                        )
-                    },
-                );
-            eprintln!("Loaded native MOXB cloud grid {}x{}: {cell_count} populated cells, {vertex_count} vertices, {group_count} groups, {index_count} indices", cloud.width, cloud.height);
-            Some(std::sync::Arc::new(cloud))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("world.cld unavailable; native cloud surface omitted");
-            None
-        }
-        Err(e) => return Err(format!("world.cld: {e}")),
-    };
-    if (world_scene.width - w as f32 * grid_spacing).abs() > 0.1
-        || (world_scene.length - h as f32 * grid_spacing).abs() > 0.1
-    {
-        return Err("ECWLD and TRN2 world dimensions differ".into());
-    }
-    let water = water::load(&world_scene, &dir)?;
-    eprintln!(
-        "Loaded {} water areas from client BSData grids",
-        water.len()
-    );
-    let ornaments = world_scene.load_ornaments(&dir.join("world.ecbsd"))?;
-    eprintln!(
-        "Loaded {} unique world ornament placements; nearby BMD meshes will stream during flight",
-        ornaments.len()
-    );
-    let count_trees: usize = world_scene.blocks.iter().map(|b| b.trees.len()).sum();
-    let count_models: usize = world_scene.blocks.iter().map(|b| b.models.len()).sum();
-    eprintln!("Loaded scene placements: {count_trees} trees, {count_models} EC models");
+    let assets = world_asset_worker
+        .join()
+        .map_err(|_| "world asset loader panicked")??;
+    let WorldAssets {
+        scene,
+        cloud_surface,
+        water,
+        objects,
+        models,
+        grass,
+        trees,
+        environments,
+        scene_lights,
+    } = assets;
     eprintln!("Loading world terrain textures and masks...");
     #[cfg(windows)]
     windows_setup::loading_progress("Loading terrain materials and masks...".into());
-    let materials = material::Materials::load(&dir, &t, &names, w, h, grid_spacing)?;
-    let element = dir
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("invalid world path")?;
-    let water_normals = water::load_normals(element)?;
-    let water_simple_frames = water::load_simple_frames(element)?;
-    let objects = objects::Objects::open(element, ornaments)?;
-    let placements: Vec<_> = world_scene
-        .blocks
-        .iter()
-        .flat_map(|b| b.models.iter().cloned())
-        .collect();
-    let models = match world_models::Assets::open(element, placements.clone()) {
-        Ok(models) => models,
-        Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
-    };
-    eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (ordinary animated submission enabled unless PW_DISABLE_WORLD_MODELS is set)", models.assets.len(), models.instances.len(), models.unloaded.len());
-    for failure in &models.failures {
-        eprintln!("EC model dependency: {failure}");
-    }
-    let grass = grass::Grass::load(&world_scene, &dir, element)?;
-    #[cfg(windows)]
-    windows_setup::loading_progress(
-        "Preparing trees (first run may take several minutes)...".into(),
-    );
-    let tree_cache = if let Some(dir) = std::env::var_os("PW_TREE_CACHE") {
-        PathBuf::from(dir)
-    } else {
-        #[cfg(windows)]
-        {
-            windows_setup::prepare_trees(element)?
-        }
-        #[cfg(not(windows))]
-        {
-            PathBuf::from("tree-cache")
-        }
-    };
-    let trees = trees::Trees::open(element, &world_scene, &tree_cache)?;
-    #[cfg(windows)]
-    if std::env::var_os("PW_TREE_CACHE").is_none() && trees.types.iter().any(|tree| tree.is_none())
-    {
-        return Err(format!("Some prepared tree types could not be loaded. Close Perfect World Explorer, remove this cache folder, and try again:\n{}",tree_cache.display()));
-    }
-    let environments = environment::Environments::load(&world_scene, &dir)?;
-    // Ordinary world-model receivers query these actual client records.
-    // Do not also add them to static baked BMDs or terrain: those surfaces
-    // use their separately traced baked-light paths.
-    let scene_lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
-        Ok(lights) => {
-            eprintln!(
-                "Loaded {} client scene lights (static query only)",
-                lights.lights.len()
-            );
-            lights
-        }
-        Err(e) => {
-            eprintln!("Scene lights unavailable: {e}");
-            scene_lights::SceneLights::default()
-        }
-    };
+    let materials = material_worker
+        .join()
+        .map_err(|_| "terrain material loader panicked")??;
+    let (water_normals, water_simple_frames) = water_texture_worker
+        .join()
+        .map_err(|_| "water texture loader panicked")??;
     Ok(Terrain {
         models,
         environments,
-        scene_lights: std::sync::Arc::new(scene_lights),
-        scene: std::sync::Arc::new(world_scene),
+        scene_lights,
+        scene,
         scenery_residency: scenery_visibility::RegionResidency::default(),
         terrain_material_window: None,
-        element: element.to_path_buf(),
+        map: map.clone(),
+        element: element.clone(),
         grass,
         water_normals,
         water_simple_frames,
@@ -821,9 +1113,13 @@ mod viewer;
 fn main() {
     #[cfg(windows)]
     std::panic::set_hook(Box::new(|info| {
-        windows_setup::show_error(&format!(
-            "Perfect World Explorer encountered an unexpected error:\n{info}"
-        ))
+        if RECOVERABLE_MAP_OPERATION.load(Ordering::SeqCst) {
+            eprintln!("Recovering from a map-loading error: {info}");
+        } else {
+            windows_setup::show_error(&format!(
+                "Perfect World Explorer encountered an unexpected error:\n{info}"
+            ));
+        }
     }));
     #[allow(unused_mut)]
     let mut args: Vec<_> = env::args_os().collect();
@@ -838,9 +1134,16 @@ fn main() {
             }
         }
     }
+    // `--world <map-id>` is the headless spelling of the Teleport List's world
+    // selector and is also how the GUI restarts itself after "Change world".
+    let mut world_override: Option<String> = None;
+    if args.len() >= 4 && args[2].to_string_lossy() == "--world" {
+        world_override = Some(args[3].to_string_lossy().into_owned());
+        args.drain(2..4);
+    }
     if args.len() < 2 || (args.len() > 4 && args.len() != 9) {
         eprintln!(
-            "Usage: perfect-world-explorer <client-root> [terrain-output.png | --preview-3d output.png]"
+            "Usage: perfect-world-explorer <client-root> [--world <map-id>] [terrain-output.png | --preview-3d output.png]"
         );
         std::process::exit(2)
     }
@@ -855,7 +1158,7 @@ fn main() {
     // The client root comes first: it is what "do not write the logs in there"
     // is measured against, both for the default and for a folder the settings
     // file still remembers from a build that wrote next to the game.
-    diagnostics::set_client_root(&path);
+    diagnostics::set_client_root(&world_catalog::client_root(&path));
     diagnostics::set_default_dir(diagnostics::default_log_dir());
     if !saved.logging_dir.trim().is_empty()
         && diagnostics::inside_client(std::path::Path::new(saved.logging_dir.trim()))
@@ -877,47 +1180,106 @@ fn main() {
     ));
     objects::set_unbounded_textures(saved.all_to_vram);
     #[cfg(windows)]
-    let loading = windows_setup::LoadingWindow::start();
-    let loaded = terrain(&path, saved.all_to_vram);
-    let result = loaded.and_then(|mut t| match args.len() {
+    let loading = if world_handoff::is_handoff_child() {
+        None
+    } else {
+        Some(windows_setup::LoadingWindow::start())
+    };
+    let mut preferred_world = world_override
+        .as_deref()
+        .unwrap_or(saved.selected_world.as_str())
+        .to_string();
+    let (loaded, fallback_notice) = load_with_main_world_fallback(&preferred_world, |world| {
+        terrain(&path, saved.all_to_vram, Some(world))
+    })
+    .map(|(terrain, notice)| (Ok(terrain), notice))
+    .unwrap_or_else(|error| (Err(error), None));
+    if fallback_notice.is_some() {
+        preferred_world = "world".into();
+        saved.selected_world = "world".into();
+        if let Err(error) = saved.save() {
+            eprintln!("Could not persist main-world fallback: {error}");
+        }
+        let notice = fallback_notice.as_deref().unwrap_or_default();
+        eprintln!("{notice}");
         #[cfg(windows)]
-        2 => gpu::run(t, Some(loading)),
-        #[cfg(not(windows))]
-        2 => gpu::run(t),
-        3 => export_png(&t, Path::new(&args[2])),
-        4 if args[2] == "--preview-3d" => viewer::preview(&mut t, Path::new(&args[3])),
-        4 if args[2] == "--gpu-preview" => gpu::preview(t, Path::new(&args[3]), None),
-        9 if args[2] == "--gpu-preview-at" => {
-            let mut coords = [0f32; 5];
-            for i in 0..5 {
-                coords[i] = args[3 + i]
-                    .to_string_lossy()
-                    .parse::<f32>()
-                    .map_err(|_| "invalid camera number")?;
-            }
-            gpu::preview(t, Path::new(&args[8]), Some(coords))
+        if !world_handoff::is_handoff_child() {
+            windows_setup::show_error(notice);
         }
-        9 if args[2] == "--preview-at" => {
-            let mut coords = [0f32; 5];
-            for i in 0..5 {
-                coords[i] = args[3 + i]
-                    .to_string_lossy()
-                    .parse::<f32>()
-                    .map_err(|_| "invalid camera number")?;
-            }
-            viewer::preview_at(
-                &mut t,
-                Path::new(&args[8]),
-                coords[0],
-                coords[1],
-                coords[2],
-                coords[3],
-                coords[4],
-            )
+        if world_handoff::is_handoff_child() {
+            world_handoff::publish_progress("Selected map failed; preparing the main world...");
         }
-        _ => Err("invalid arguments".into()),
-    });
+    }
+    let client_root = path.clone();
+    let result = recoverable_map_operation(move || {
+        loaded.and_then(|mut t| match args.len() {
+            #[cfg(windows)]
+            2 => gpu::run(t, loading),
+            #[cfg(not(windows))]
+            2 => gpu::run(t),
+            3 => export_png(&t, Path::new(&args[2])),
+            4 if args[2] == "--preview-3d" => viewer::preview(&mut t, Path::new(&args[3])),
+            4 if args[2] == "--gpu-preview" => gpu::preview(t, Path::new(&args[3]), None),
+            9 if args[2] == "--gpu-preview-at" => {
+                let mut coords = [0f32; 5];
+                for i in 0..5 {
+                    coords[i] = args[3 + i]
+                        .to_string_lossy()
+                        .parse::<f32>()
+                        .map_err(|_| "invalid camera number")?;
+                }
+                gpu::preview(t, Path::new(&args[8]), Some(coords))
+            }
+            9 if args[2] == "--preview-at" => {
+                let mut coords = [0f32; 5];
+                for i in 0..5 {
+                    coords[i] = args[3 + i]
+                        .to_string_lossy()
+                        .parse::<f32>()
+                        .map_err(|_| "invalid camera number")?;
+                }
+                viewer::preview_at(
+                    &mut t,
+                    Path::new(&args[8]),
+                    coords[0],
+                    coords[1],
+                    coords[2],
+                    coords[3],
+                    coords[4],
+                )
+            }
+            _ => Err("invalid arguments".into()),
+        })
+    })
+    .and_then(|result| result);
     if let Err(e) = result {
+        if !preferred_world.eq_ignore_ascii_case("world") {
+            saved.selected_world = "world".into();
+            if let Err(save_error) = saved.save() {
+                eprintln!("Could not persist main-world fallback: {save_error}");
+            }
+            let restarted = env::current_exe()
+                .map_err(|error| error.to_string())
+                .and_then(|exe| {
+                    std::process::Command::new(exe)
+                        .arg(&client_root)
+                        .arg("--world")
+                        .arg("world")
+                        .spawn()
+                        .map(|_| ())
+                        .map_err(|error| error.to_string())
+                });
+            if restarted.is_ok() {
+                let notice = format!(
+                    "Map {} failed after loading. The explorer is restarting in the main world.\n\n{e}",
+                    preferred_world
+                );
+                eprintln!("{notice}");
+                #[cfg(windows)]
+                windows_setup::show_error(&notice);
+                return;
+            }
+        }
         eprintln!("Error: {e}");
         #[cfg(windows)]
         windows_setup::show_error(&e);
@@ -927,6 +1289,51 @@ fn main() {
 
 #[cfg(test)]
 mod ram_export_tests {
+    #[test]
+    fn failed_instance_load_retries_main_world_once() {
+        let mut attempts = Vec::new();
+        let (loaded, notice) = super::load_with_main_world_fallback("a01", |id| {
+            attempts.push(id.to_string());
+            if id == "world" {
+                Ok("main terrain")
+            } else {
+                Err("instance bridge rejected a tree source".into())
+            }
+        })
+        .unwrap();
+        assert_eq!(loaded, "main terrain");
+        assert_eq!(attempts, ["a01", "world"]);
+        assert!(notice.unwrap().contains("returned to the main world"));
+    }
+
+    #[test]
+    fn main_world_failure_is_not_retried() {
+        let mut attempts = 0;
+        let error = super::load_with_main_world_fallback("world", |_| {
+            attempts += 1;
+            Err::<(), _>("broken main world".into())
+        })
+        .unwrap_err();
+        assert_eq!(error, "broken main world");
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn panic_while_loading_instance_retries_main_world() {
+        let mut attempts = Vec::new();
+        let (loaded, notice) = super::load_with_main_world_fallback("a02", |id| {
+            attempts.push(id.to_string());
+            if id == "a02" {
+                panic!("malformed instance terrain")
+            }
+            Ok("main terrain")
+        })
+        .unwrap();
+        assert_eq!(loaded, "main terrain");
+        assert_eq!(attempts, ["a02", "world"]);
+        assert!(notice.unwrap().contains("unexpected error"));
+    }
+
     #[test]
     fn streamed_png_preserves_decoded_rgb() {
         let path =

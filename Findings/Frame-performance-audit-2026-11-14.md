@@ -1,0 +1,22 @@
+# Frame-performance audit — 14 November 2026
+
+## Code-scan candidates and changes made
+
+The user reports 20–30 FPS with low CPU and GPU utilization. That pattern alone does not identify a bottleneck: FIFO presentation can quantize missed refresh deadlines, CPU submission can be brief while GPU work is queued, and full-world rendering can involve repeated scene views. No target-machine capture or real-client frame profile was available, so the changes below avoid quality reductions and add measurement rather than claiming an unmeasured FPS gain.
+
+1. **Missed-refresh FIFO pacing (implemented):** the surface previously kept wgpu's default present mode. Prefer `Mailbox` when the adapter advertises it, retaining FIFO/default fallback otherwise. This preserves rendered pixels and avoids tearing; it can improve cadence/latency when a FIFO frame misses vblank. It cannot make a genuinely slow GPU render faster. The selected mode is printed at startup and has a unit-tested selection helper.
+2. **Whole-world water submitted in every camera-centred minimap (implemented):** the minimap's top-down orthographic window used to issue the entire water index range each frame, even though the renderer already has spatial water batches and conservative AABB frustum checks. It now submits only visible water batches for the local minimap. The full-world map still submits every batch. This preserves in-view geometry and avoids rasterizing off-window water; culling uses the same conservative mechanism as other water views.
+3. **Per-model alpha membership work (implemented):** the opaque mesh loop used `Vec::contains` for every mesh against the alpha mesh list, producing O(meshes × alpha-meshes) CPU work. The alpha list is constructed in ascending mesh-index order, so membership now uses binary search without changing queue order or draw state.
+4. **Unmeasured frame pacing/submit cost (instrumented):** `PW_FRAME_TIMING=1` emits one line per second with presented FPS, frame interval, CPU wall time in surface acquisition, world renderer submission, minimap submission and `present()`. It never waits/polls the GPU. GPU execution is explicitly not included; this separates refresh/acquisition and CPU submission clues but does not substitute for GPU timestamp queries.
+
+## Further candidates, ordered by evidence/risk
+
+- **GPU timestamps / pass-level counters:** add optional `TIMESTAMP_QUERY` collection with delayed readback, plus counts for visible water planes, terrain runs, model meshes and tree dispatches. This is the next step to distinguish raster/fragment pressure from command-encoding or vblank pacing; it needs a real adapter run because timestamp-query support is optional.
+- **Dynamic per-water-plane buffer ring and combined submissions:** the reflection/refraction path submits separate command buffers per plane because it rewrites uniform and indirect-run buffers between views and reuses reflection targets. A ring of immutable per-view uniforms/arguments could preserve order while batching queue submissions; this is a larger correctness-sensitive change and should follow pass timing.
+- **Spatially indexed animated model updates:** the model update path advances retained assets and evaluates activation across placements. If timing shows this dominates, retain per-scene-block candidate lists and process only active/resident blocks while preserving animation/attachment/light rules. Do not parallelize GPU buffer mutation without a safe staging/ordering model.
+- **Minimap scene caching:** the realistic minimap is intentionally rendered live, including animated scene content. Caching or throttling it can reduce work, but can freeze animation or make the map lag, so it is not included as a quality-neutral optimization without proving a static-only equivalent.
+- **Resolution scaling:** lower render scale reduces GPU pixel work, but softens the world image and is intentionally not applied automatically under the no-quality-loss requirement.
+
+## Validation boundary
+
+Unit/CI coverage can establish the present-mode choice, culling behavior, alpha-list ordering, formatting and builds. It cannot establish FPS improvement on a physical GPU. Use the new opt-in timing output alongside the startup `GPU adapter` and `Surface present mode` lines; a large acquisition/present duration suggests presentation pacing, while a large world/map CPU-submit duration points toward CPU-side command work. Those values still do not report GPU execution time. No FPS or GPU-utilization percentage is claimed by this code-only change.

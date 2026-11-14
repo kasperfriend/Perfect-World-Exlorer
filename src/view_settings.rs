@@ -215,6 +215,9 @@ pub struct ViewSettings {
     pub logging_mask: u64,
     /// Where the log files go; empty means `<client root>/pwe-logs`.
     pub logging_dir: String,
+    /// Map folder selected in Escape → Teleport List → Change world. A missing
+    /// or unknown ID falls back to the main world.
+    pub selected_world: String,
 }
 impl Default for ViewSettings {
     fn default() -> Self {
@@ -288,6 +291,7 @@ impl Default for ViewSettings {
             // every session pays.
             logging_mask: 0,
             logging_dir: String::new(),
+            selected_world: String::from("world"),
         }
     }
 }
@@ -417,6 +421,20 @@ impl ViewSettings {
                     // rather than ignored: clearing the box must persist too.
                     s.logging_dir = v.to_string();
                 }
+                "selected_world" => {
+                    // The ID becomes part of a client path; reject separators,
+                    // traversal and control characters instead of trusting a
+                    // hand-edited settings file.
+                    let id = v.trim();
+                    if !id.is_empty()
+                        && id.len() <= 64
+                        && id
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                    {
+                        s.selected_world = id.to_string();
+                    }
+                }
                 "world_effects" => flag!(s.world_effects),
                 "effect_distance" => {
                     if let Ok(metres) = v.parse::<f32>() {
@@ -460,14 +478,14 @@ impl ViewSettings {
             "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\ntime_pass_enabled={}\ntime_pass_speed={}\nall_to_vram={}\n",
             "whole_world={}\nwater_reflections={}\nworld_effects={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\neffect_shaft={}\neffect_distance={}\nlogging_mask={}\nlogging_dir={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\neffect_shaft={}\neffect_distance={}\nlogging_mask={}\nlogging_dir={}\nselected_world={}\n"),
             self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,self.time_pass_enabled,self.time_pass_speed,self.all_to_vram,
             self.whole_world,self.water_reflections,self.world_effects,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.celestial_brightness,self.ignore_celestial_flags,self.cloud_detail,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label(),
-            self.weather_override.token(),self.sky_override.token(),self.effect_shaft.token(),self.effect_distance,self.logging_mask,self.logging_dir)
+            self.weather_override.token(),self.sky_override.token(),self.effect_shaft.token(),self.effect_distance,self.logging_mask,self.logging_dir,self.selected_world)
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -964,5 +982,19 @@ mod tests {
                 .detail
                 .terrain_cutoff
         );
+    }
+
+    #[test]
+    fn selected_world_round_trips_and_rejects_unsafe_ids() {
+        assert_eq!(ViewSettings::default().selected_world, "world");
+        let s = ViewSettings::decode("selected_world=a01");
+        assert_eq!(s.selected_world, "a01");
+        assert_eq!(ViewSettings::decode(&s.encode()).selected_world, "a01");
+        for bad in ["../world", "a01/b30", "", "a01\nselected_world=world"] {
+            assert_eq!(
+                ViewSettings::decode(&format!("selected_world={bad}")).selected_world,
+                "world"
+            );
+        }
     }
 }

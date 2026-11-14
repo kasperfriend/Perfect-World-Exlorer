@@ -260,6 +260,7 @@ enum MenuPage {
     Settings,
     Teleports,
     WorldMap,
+    WorldLoading,
 }
 impl MenuPage {
     fn escape(self) -> Self {
@@ -268,6 +269,7 @@ impl MenuPage {
             Self::Main => Self::Closed,
             Self::Modules | Self::Settings | Self::Teleports => Self::Main,
             Self::WorldMap => Self::Closed,
+            Self::WorldLoading => Self::WorldLoading,
         }
     }
     fn is_open(self) -> bool {
@@ -326,19 +328,7 @@ impl WaterBatch {
     // Conservative homogeneous clip-space rejection for the rectangular bounds.
     fn visible(&self, matrix: Mat4) -> bool {
         let [x0, x1, z0, z1] = self.bounds;
-        let corners = [
-            Vec3::new(x0, self.height, z0),
-            Vec3::new(x0, self.height, z1),
-            Vec3::new(x1, self.height, z0),
-            Vec3::new(x1, self.height, z1),
-        ]
-        .map(|p| matrix * p.extend(1.));
-        !(corners.iter().all(|p| p.x < -p.w)
-            || corners.iter().all(|p| p.x > p.w)
-            || corners.iter().all(|p| p.y < -p.w)
-            || corners.iter().all(|p| p.y > p.w)
-            || corners.iter().all(|p| p.z < 0.)
-            || corners.iter().all(|p| p.z > p.w))
+        crate::terrain_residency::in_frustum(matrix, [x0, self.height, z0, x1, self.height, z1])
     }
     fn distance_squared(&self, p: Vec3) -> f32 {
         let [x0, x1, z0, z1] = self.bounds;
@@ -866,7 +856,17 @@ fn build(
     // Only the ornament class maps to Objects::load_ids indices; the other
     // nine classes use disjoint synthetic indices for the resident-bit set.
     let object_start = indices.len() as u32;
-    let scenery_placements = ten_class_placements(t);
+    let scenery_placements = ten_class_placements(t)?;
+    let authored_ornament_links: usize = t
+        .scene
+        .blocks
+        .iter()
+        .map(|block| block.ornaments.len())
+        .sum();
+    let unique_ornament_refs = scenery_placements
+        .iter()
+        .filter(|placement| placement.class == Class::Ornaments)
+        .count();
     let scenery_margin = 0.5 * t.scene.block_size.max(0.);
     let nearby = t.scenery_residency.select(
         &scenery_placements,
@@ -886,13 +886,17 @@ fn build(
     t.objects.load_ids(&ornament_ids)?;
     let tree_lod_scale = lod_scale(detail.scenery_quality, Class::Trees);
     eprintln!(
-        "Scenery residency: quality {} ({} native classes, tree LOD {:.3}, ornament distance {:.1}), {} resident, {} ornaments retained, {} loads, {} evictions, {} distance culls",
+        "Scenery residency: quality {} ({} native classes, tree LOD {:.3}, ornament distance {:.1}), {} resident, {}/{} unique ornament placements retained, {}/{} ECWLD links/models, {} unavailable model assets, {} loads, {} evictions, {} distance culls",
         detail.scenery_quality,
         Class::ALL.len(),
         tree_lod_scale,
         crate::scenery_visibility::ornament_distance(detail.scenery_quality),
         nearby.len(),
         ornament_ids.len(),
+        unique_ornament_refs,
+        authored_ornament_links,
+        t.objects.ornaments.len(),
+        t.objects.unavailable_model_count(),
         t.scenery_residency.loads,
         t.scenery_residency.evictions,
         t.scenery_residency.distance_culls
@@ -1199,8 +1203,10 @@ fn build(
         let materials = if t.terrain_material_window.is_none() {
             t.materials.take_window(mask_window)
         } else {
-            let dir = t.element.join("maps/world");
-            let trn = std::fs::read(dir.join("world.trn2")).map_err(|e| e.to_string())?;
+            let dir = t.map.dir.clone();
+            let terrain_path = t.map.file("trn2");
+            let trn = std::fs::read(&terrain_path)
+                .map_err(|e| format!("{}: {e}", terrain_path.display()))?;
             crate::material::Materials::load_window(
                 &dir,
                 &trn,
@@ -1287,6 +1293,40 @@ fn fs_body(i:VOut, front:bool)->vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || 
 @fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }
 @fragment fn fs_sdr(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if !sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }
 "#;
+fn world_loading_summary(
+    processed: usize,
+    skipped: usize,
+    stats: &crate::world_objects::DoneStats,
+) -> String {
+    let unavailable = stats.unavailable_models.len();
+    let examples = stats
+        .unavailable_models
+        .iter()
+        .take(4)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = unavailable.saturating_sub(4);
+    let missing = if unavailable == 0 {
+        String::new()
+    } else if more == 0 {
+        format!("; missing BMDs: {examples}")
+    } else {
+        format!("; missing BMDs: {examples} (+{more} more; see log)")
+    };
+    format!(
+        "Loaded {processed} placements; {unavailable} model assets unavailable, {skipped} meshes use fallback texture, {} unresolved texture references; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits{missing}",
+        stats.unresolved_rows,
+        stats.pages,
+        stats.atlas_pages,
+        stats.atlas_bytes >> 20,
+        stats.residency.peak_resident_bytes >> 20,
+        stats.residency.budget_bytes >> 20,
+        stats.residency.evictions,
+        stats.residency.alias_hits,
+    )
+}
+
 struct Renderer {
     /// Optional add-ons; default-disabled and absent from headless previews.
     modules: crate::modules::Modules,
@@ -1338,6 +1378,7 @@ struct Renderer {
     world_pages: Vec<crate::world_objects::GpuPage>,
     /// Whole-world page commands, one list per view slot (`GpuPage::world_view_slot`).
     world_draw_cmds: [Vec<crate::world_objects::DrawCmd>; crate::world_objects::WORLD_VIEWS],
+    world_sdr_draw_cmds: [Vec<crate::world_objects::DrawCmd>; crate::world_objects::WORLD_VIEWS],
     world_done: bool,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -1374,6 +1415,8 @@ struct Renderer {
     atlas: wgpu::Texture,
     vertex: wgpu::Buffer,
     index: wgpu::Buffer,
+    sdr_index: wgpu::Buffer,
+    sdr_count: u32,
     count: u32,
     depth: wgpu::Texture,
     center: (isize, isize),
@@ -1401,7 +1444,9 @@ pub(crate) fn depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
 /// box areas, grass areas, effects, EC models, critters, bezier routes, sounds.
 /// Ornament indices are the `Objects::load_ids` indices; other classes get
 /// disjoint synthetic indices so the same resident-bit set can cover all ten.
-pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Placement> {
+pub fn ten_class_placements(
+    t: &Terrain,
+) -> Result<Vec<crate::scenery_visibility::Placement>, String> {
     use crate::scenery_visibility::{Placement, Visibility};
     let mut out = Vec::new();
     let by_export: HashMap<u32, usize> = t
@@ -1412,6 +1457,7 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
         .map(|(i, o)| (o.export_id, i))
         .collect();
     let mut next = t.objects.ornaments.len();
+    let mut seen_ornaments = std::collections::HashSet::new();
     let hidden = Visibility {
         reflect: false,
         refract: false,
@@ -1440,15 +1486,25 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
             push(&mut out, center, Class::Water);
         }
         for r in &b.ornaments {
-            if let Some(&i) = by_export.get(&r.export_id) {
-                let o = &t.objects.ornaments[i];
-                out.push(Placement {
-                    index: i,
-                    center: [o.position[0], o.position[2]],
-                    visibility: Visibility::from_extra(o.extra),
-                    class: Class::Ornaments,
-                });
+            // ECWLD blocks may share a reference to one EC-BSD export record.
+            // The scene parser emits one placement per export ID, so mirror
+            // that here rather than duplicating its draw range in each block.
+            if !seen_ornaments.insert(r.export_id) {
+                continue;
             }
+            let Some(&i) = by_export.get(&r.export_id) else {
+                return Err(format!(
+                    "ECWLD ornament export {} in block ({},{}) has no EC-BSD model record",
+                    r.export_id, b.col, b.row
+                ));
+            };
+            let o = &t.objects.ornaments[i];
+            out.push(Placement {
+                index: i,
+                center: [o.position[0], o.position[2]],
+                visibility: Visibility::from_extra(o.extra),
+                class: Class::Ornaments,
+            });
         }
         for _ in &b.boxes {
             push(&mut out, center, Class::BoxAreas);
@@ -1472,7 +1528,26 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
             push(&mut out, [snd.position[0], snd.position[2]], Class::Sounds);
         }
     }
-    out
+    if seen_ornaments.len() != t.objects.ornaments.len() {
+        let missing = t
+            .objects
+            .ornaments
+            .iter()
+            .filter(|ornament| !seen_ornaments.contains(&ornament.export_id))
+            .map(|ornament| ornament.export_id.to_string())
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "{} EC-BSD ornament model records have no ECWLD placement reference (export IDs: {})",
+            missing.len(),
+            missing
+                .iter()
+                .take(16)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    Ok(out)
 }
 
 /// Reallocate every size-dependent world render target at the *scaled* render
@@ -1887,6 +1962,22 @@ impl Renderer {
             contents: bytemuck::cast_slice(&m.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let sdr_indices = crate::world_objects::filter_sdr_indices(
+            &m.vertices,
+            &m.indices,
+            m.terrain_end..m.water_start,
+        );
+        let sdr_count = sdr_indices.len() as u32;
+        let sdr_contents = if sdr_indices.is_empty() {
+            &[0u32][..]
+        } else {
+            &sdr_indices
+        };
+        let sdr_index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("local SDR curtain indices"),
+            contents: bytemuck::cast_slice(sdr_contents),
+            usage: wgpu::BufferUsages::INDEX,
+        });
         let count = m.indices.len() as u32;
         crate::grass_mips::upload(&queue, &atlas, &m.atlas, &m.grass_mips, ATLAS);
         let grass = crate::grass_instances::Gpu::new(
@@ -2006,6 +2097,7 @@ impl Renderer {
             local_pages,
             world_pages: Vec::new(),
             world_draw_cmds: Default::default(),
+            world_sdr_draw_cmds: Default::default(),
             world_done: false,
             layout,
             sampler,
@@ -2028,6 +2120,8 @@ impl Renderer {
             atlas,
             vertex,
             index,
+            sdr_index,
+            sdr_count,
             count,
             depth: d,
             center: m.center,
@@ -2500,6 +2594,24 @@ impl Renderer {
                 )
             })
             .collect();
+        let sdr_indices = crate::world_objects::filter_sdr_indices(
+            &m.vertices,
+            &m.indices,
+            m.terrain_end..m.water_start,
+        );
+        self.sdr_count = sdr_indices.len() as u32;
+        let sdr_contents = if sdr_indices.is_empty() {
+            &[0u32][..]
+        } else {
+            &sdr_indices
+        };
+        self.sdr_index = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("local SDR curtain indices"),
+                contents: bytemuck::cast_slice(sdr_contents),
+                usage: wgpu::BufferUsages::INDEX,
+            });
         self.vertex = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2656,31 +2768,34 @@ impl Renderer {
                 reflected,
             );
         }
-        // The `.sdr.` water/lava curtains draw in their own blended pass over
-        // the finished scene: `fs_sdr` keeps only kind 2.02/2.12 and drops
-        // every other fragment, so replaying the same ranges is free, and the
-        // `fs` entry dropped those kinds in the pass above so the sheet is
-        // never drawn twice. Order is terrain/streamed, then pages, exactly as
-        // the unblended pass above — the sheet blends over the whole world
-        // once, the client's visible result for a curtain.
-        p.set_pipeline(&self.sdr_blend_pipeline);
-        p.set_bind_group(0, bind, &[]);
-        p.set_vertex_buffer(0, self.vertex.slice(..));
-        p.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
-        p.draw_indexed(self.terrain_end..local_end, 0, 0..1);
-        if !self.world_done {
-            for page in &self.local_pages {
-                page.draw_selected(&mut p, reflected, pass_kind);
+        // The SDR pipeline only needs curtain triangles. The previous version
+        // replayed every scenery index through the vertex shader and discarded
+        // almost all of it in `fs_sdr`; compact index streams preserve original
+        // ordering while keeping ordinary scenery off this part of the pass.
+        let slot = crate::world_objects::GpuPage::world_view_slot(pass_kind);
+        let local_sdr = !self.world_done && self.local_pages.iter().any(|page| page.has_sdr());
+        let world_sdr = self.world_done && !self.world_sdr_draw_cmds[slot].is_empty();
+        if self.sdr_count != 0 || local_sdr || world_sdr {
+            p.set_pipeline(&self.sdr_blend_pipeline);
+            if self.sdr_count != 0 {
+                p.set_bind_group(0, bind, &[]);
+                p.set_vertex_buffer(0, self.vertex.slice(..));
+                p.set_index_buffer(self.sdr_index.slice(..), wgpu::IndexFormat::Uint32);
+                p.draw_indexed(0..self.sdr_count, 0, 0..1);
             }
-        }
-        if self.world_done {
-            let slot = crate::world_objects::GpuPage::world_view_slot(pass_kind);
-            crate::world_objects::GpuPage::draw_world(
-                &self.world_pages,
-                &self.world_draw_cmds[slot],
-                &mut p,
-                reflected,
-            );
+            if !self.world_done {
+                for page in &self.local_pages {
+                    page.draw_selected_sdr(&mut p, reflected, pass_kind);
+                }
+            }
+            if self.world_done {
+                crate::world_objects::GpuPage::draw_world_sdr(
+                    &self.world_pages,
+                    &self.world_sdr_draw_cmds[slot],
+                    &mut p,
+                    reflected,
+                );
+            }
         }
     }
     fn draw_models(
@@ -2916,7 +3031,15 @@ impl Renderer {
             pass.set_bind_group(0, &self.bind, &[]);
             pass.set_vertex_buffer(0, self.vertex.slice(..));
             pass.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(self.water_start..self.count, 0, 0..1);
+            // The camera-centred minimap is a small ortho window, but the old
+            // path submitted the complete full-world water index range. Reuse
+            // each batch's conservative world bounds so only water that can
+            // reach a minimap pixel is rasterized; the full-map view keeps all.
+            for batch in &self.water_batches {
+                if full_world || batch.visible(matrix) {
+                    pass.draw_indexed(batch.start..batch.end, 0, 0..1);
+                }
+            }
         }
         self.queue.submit(Some(e.finish()));
     }
@@ -3829,6 +3952,19 @@ fn receiving_model_frame(
         light.unwrap_or_else(neutral_regional_light),
     )
 }
+fn preferred_present_mode(
+    supported: &[wgpu::PresentMode],
+    fallback: wgpu::PresentMode,
+) -> wgpu::PresentMode {
+    if supported.contains(&wgpu::PresentMode::Mailbox) {
+        wgpu::PresentMode::Mailbox
+    } else if supported.contains(&wgpu::PresentMode::Fifo) {
+        wgpu::PresentMode::Fifo
+    } else {
+        fallback
+    }
+}
+
 async fn adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
@@ -3878,6 +4014,9 @@ pub fn run(
     mut t: Terrain,
     #[cfg(windows)] loading: Option<crate::windows_setup::LoadingWindow>,
 ) -> Result<(), String> {
+    let current_map = t.map.clone();
+    let map_title = t.map.label();
+    let client_root = crate::world_catalog::client_root(&t.map.element);
     #[cfg(windows)]
     crate::windows_setup::loading_progress("Preparing GPU world and textures...".into());
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
@@ -3889,6 +4028,40 @@ pub fn run(
             .build(&event_loop)
             .map_err(|e| e.to_string())?,
     );
+    let mut camera = Camera::new(&t);
+    camera.underwater_fog = t
+        .environments
+        .underwater(camera.pos.to_array(), camera.time_of_day);
+    camera.air_fog = t
+        .environments
+        .atmosphere(camera.pos.to_array(), camera.time_of_day);
+    let mut settings = ViewSettings::load_with_default_fog(t.environments.auto_fog_enabled());
+    // The axial card rule is read by the player, not by this loop, so it has to
+    // be published before the first effect is built as well as on every change.
+    crate::gfx_player::set_shaft_mode(settings.effect_shaft);
+    let vegetation_authored_mips = settings.vegetation_authored_mips
+        || std::env::var_os("PW_VEGETATION_AUTHORED_MIPS").is_some();
+    // CPU scene construction does not need a graphics device. Run it while the
+    // adapter/device and swapchain initialize, keeping the same deterministic
+    // mesh build and loading feedback but shortening the serial startup chain.
+    let build_x = camera.pos.x;
+    let build_z = camera.pos.z;
+    let detail = settings.detail;
+    let build_worker = std::thread::Builder::new()
+        .name("initial-world-mesh-build".into())
+        .spawn(move || {
+            let mut residency = crate::terrain_residency::Residency::default();
+            let mesh = build(
+                &mut t,
+                build_x,
+                build_z,
+                detail,
+                &mut residency,
+                vegetation_authored_mips,
+            )?;
+            Ok::<_, String>((t, mesh))
+        })
+        .map_err(|e| format!("cannot start initial world build: {e}"))?;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()),
         ..Default::default()
@@ -3899,7 +4072,8 @@ pub fn run(
     let (adapter, device, queue) = pollster::block_on(adapter(&instance, Some(&surface)))?;
     let software_adapter = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
     window.set_title(&format!(
-        "Perfect World Explorer — {} — click mouse to look, Esc menu, WASD fly",
+        "Perfect World Explorer — {} ({}) — click mouse to look, Esc menu, WASD fly",
+        map_title,
         adapter.get_info().name
     ));
     let caps = surface.get_capabilities(&adapter);
@@ -3918,41 +4092,28 @@ pub fn run(
         .get_default_config(&adapter, size.width.max(1), size.height.max(1))
         .ok_or("surface configuration unavailable")?;
     config.format = surface_format;
+    // Prefer a non-tearing mailbox queue when the surface supports one. Unlike
+    // FIFO, mailbox does not make a missed refresh hold the producer until the
+    // next vblank, which can otherwise collapse apparent cadence to 30/20 FPS.
+    // FIFO remains the portable fallback and rendered pixels are unchanged.
+    config.present_mode = preferred_present_mode(&caps.present_modes, config.present_mode);
+    eprintln!("Surface present mode: {:?}", config.present_mode);
     if surface_format.is_srgb() {
         config
             .view_formats
             .push(surface_format.remove_srgb_suffix());
     }
     surface.configure(&device, &config);
-    let mut camera = Camera::new(&t);
-    camera.underwater_fog = t
-        .environments
-        .underwater(camera.pos.to_array(), camera.time_of_day);
-    camera.air_fog = t
-        .environments
-        .atmosphere(camera.pos.to_array(), camera.time_of_day);
-    let mut settings = ViewSettings::load_with_default_fog(t.environments.auto_fog_enabled());
-    // The axial card rule is read by the player, not by this loop, so it has to
-    // be published before the first effect is built as well as on every change.
-    crate::gfx_player::set_shaft_mode(settings.effect_shaft);
-    let vegetation_authored_mips = settings.vegetation_authored_mips
-        || std::env::var_os("PW_VEGETATION_AUTHORED_MIPS").is_some();
-    let mut residency = crate::terrain_residency::Residency::default();
-    let m = build(
-        &mut t,
-        camera.pos.x,
-        camera.pos.z,
-        settings.detail,
-        &mut residency,
-        vegetation_authored_mips,
-    )?;
+    let (mut t, mesh) = build_worker
+        .join()
+        .map_err(|_| "initial world build panicked")??;
     let mut renderer = Renderer::new(
         device,
         queue,
         format,
         config.width,
         config.height,
-        m,
+        mesh,
         &mut t,
         vegetation_authored_mips,
     )?;
@@ -3989,11 +4150,15 @@ pub fn run(
         } else {
             None
         };
-    let mut music = crate::music::MusicPlayer::new(&t.element);
-    let mut ambience = crate::music::AmbiencePlayer::new(&t.element);
+    let precinct_path = current_map.dir.join("precinct.clt");
+    let mut music = crate::music::MusicPlayer::new_for_map(&t.element, &precinct_path);
+    let mut ambience = crate::music::AmbiencePlayer::new_for_map(&t.element, &precinct_path);
     let mut world_audio = crate::world_audio::WorldAudio::new(&t.element, &t.scene);
     #[cfg(windows)]
     drop(loading);
+    // The handoff parent remains visible with its loading overlay. The child
+    // must have a real visible swapchain so Winit/Windows will deliver its
+    // first redraw; hidden native windows can defer redraw indefinitely.
     window.set_visible(true);
     let water_areas = t.water.clone();
     let environments = t.environments.clone();
@@ -4017,6 +4182,7 @@ pub fn run(
     let whole_ornaments = t.objects.ornaments.clone();
     renderer.modules = crate::modules::Modules::new(
         whole_element.clone(),
+        current_map.dir.clone(),
         map_space.clone(),
         water_areas.clone(),
         &t.scene,
@@ -4036,8 +4202,46 @@ pub fn run(
         let heights = map_space.clone();
         models.set_terrain(move |x: f32, z: f32| Some(heights.ground(x, z)));
     }
-    let destinations =
-        crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));
+    let ui_zones = crate::music::Zones::open(&current_map.dir.join("precinct.clt")).ok();
+    let destinations_path = current_map.dir.join("world_targets.txt");
+    let destinations_result =
+        crate::navigation::destinations_for_world(&destinations_path, &current_map.instance_ids);
+    // Instance maps commonly ship a UTF-16 precinct.clt but no world_targets.txt.
+    // Offer the authored zone centres as safe local teleport points rather than
+    // treating this optional main-world list as a map-load failure.
+    let used_precinct_fallback = !destinations_path.exists();
+    let destinations = if used_precinct_fallback {
+        let mut fallback = ui_zones
+            .as_ref()
+            .map(|zones| {
+                zones
+                    .zones
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, zone)| {
+                        zone.center.map(|position| crate::navigation::Destination {
+                            id: index as u32 + 1,
+                            name: zone.name.clone(),
+                            position,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if fallback.is_empty() {
+            // A missing optional destination table is normal on instance maps.
+            // Still provide a grounded local point if that map's precinct format
+            // has no authored centres, rather than surfacing a file-not-found UI.
+            fallback.push(crate::navigation::Destination {
+                id: 1,
+                name: "Map centre".into(),
+                position: [0.0, map_space.ground(0.0, 0.0), 0.0],
+            });
+        }
+        Ok(fallback)
+    } else {
+        destinations_result
+    };
     let mut world_rx: Option<std::sync::mpsc::Receiver<crate::world_objects::Message>> = None;
     let mut world_cancel: Option<Arc<std::sync::atomic::AtomicBool>> = None;
     let mut world_enabled = false;
@@ -4107,11 +4311,28 @@ pub fn run(
         &map_view,
         wgpu::FilterMode::Linear,
     );
+    // The full overhead render must follow the loaded map's own aspect. The
+    // main world is 8192x11264 (1024x1408 here); instance maps are often square.
+    let max_map_side = 1408f64.min(renderer.device.limits().max_texture_dimension_2d as f64);
+    let terrain_aspect =
+        (map_space.width as f64 / map_space.height.max(1) as f64).clamp(0.01, 100.);
+    let (full_map_width, full_map_height) = if terrain_aspect >= 1. {
+        (
+            max_map_side as u32,
+            (max_map_side / terrain_aspect).round().max(1.) as u32,
+        )
+    } else {
+        (
+            (max_map_side * terrain_aspect).round().max(1.) as u32,
+            max_map_side as u32,
+        )
+    };
+    let map_aspect = full_map_width as f32 / full_map_height.max(1) as f32;
     let full_map_texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("full-world overhead map"),
         size: wgpu::Extent3d {
-            width: 1024,
-            height: 1408,
+            width: full_map_width,
+            height: full_map_height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -4122,7 +4343,7 @@ pub fn run(
         view_formats: &[],
     });
     let full_map_view = full_map_texture.create_view(&Default::default());
-    let full_depth_tex = depth(&renderer.device, 1024, 1408);
+    let full_depth_tex = depth(&renderer.device, full_map_width, full_map_height);
     let full_map_depth = full_depth_tex.create_view(&Default::default());
     let full_map_id = egui_renderer.register_native_texture(
         &renderer.device,
@@ -4148,7 +4369,22 @@ pub fn run(
     let mut map_zoom = 1.0f32;
     let mut map_refresh = Instant::now() - std::time::Duration::from_secs(10);
     let mut teleport_query = String::new();
-    let ui_zones = crate::music::Zones::open(&whole_element.join("maps/world/precinct.clt")).ok();
+    // Discover every readable map in the same client install once. Names come
+    // from the client's own `configs.pck` instance table when available.
+    let mut world_catalog = crate::world_catalog::discover(&whole_element);
+    if !world_catalog
+        .maps
+        .iter()
+        .any(|map| map.id.eq_ignore_ascii_case(&current_map.id))
+    {
+        world_catalog.maps.insert(0, current_map.clone());
+    }
+    let mut world_choice = current_map.id.clone();
+    let mut world_change_error = String::new();
+    let mut world_loading_status = String::from("Starting the replacement world...");
+    let mut handoff_ready_signaled = false;
+    let mut world_handoff_rx: Option<std::sync::mpsc::Receiver<crate::world_handoff::Message>> =
+        None;
     let mut last_zone: Option<usize> = None;
     let mut zone_initialized = false;
     let mut zone_check = Instant::now() - std::time::Duration::from_secs(1);
@@ -4163,6 +4399,16 @@ pub fn run(
     let mut last_settings_save = Instant::now();
     let mut last = Instant::now();
     let mut region_tick_ms = renderer.started.elapsed().as_millis() as u64;
+    // Opt-in non-blocking timing for distinguishing CPU-side submission and
+    // surface pacing from GPU execution. It never polls/waits on the device.
+    let frame_timing = std::env::var_os("PW_FRAME_TIMING").is_some();
+    let mut timing_window = Instant::now();
+    let mut timing_frames = 0u64;
+    let mut timing_frame = std::time::Duration::ZERO;
+    let mut timing_acquire = std::time::Duration::ZERO;
+    let mut timing_render = std::time::Duration::ZERO;
+    let mut timing_minimap = std::time::Duration::ZERO;
+    let mut timing_present = std::time::Duration::ZERO;
     event_loop
         .run(move |event, target| match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => {
@@ -4380,7 +4626,7 @@ pub fn run(
                     if want_world != world_enabled {
                         world_enabled=want_world;
                         if let Some(c)=world_cancel.take(){c.store(true,std::sync::atomic::Ordering::Relaxed);}
-                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_cmds=Default::default();renderer.world_done=false;
+                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_cmds=Default::default();renderer.world_sdr_draw_cmds=Default::default();renderer.world_done=false;
                         if world_enabled {
                             let (tx,rx)=std::sync::mpsc::sync_channel(1);let cancel=Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let c=cancel.clone();let root=whole_element.clone();let ornaments=whole_ornaments.clone();
@@ -4395,7 +4641,7 @@ pub fn run(
                             renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_cmds=crate::world_objects::GpuPage::world_commands(&renderer.world_pages);renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.atlas_pages,stats.atlas_bytes>>20,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_cmds=crate::world_objects::GpuPage::world_commands(&renderer.world_pages);renderer.world_sdr_draw_cmds=crate::world_objects::GpuPage::world_sdr_commands(&renderer.world_pages);renderer.world_done=true;world_status=world_loading_summary(processed,skipped,&stats);eprintln!("{world_status}");},
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}
@@ -4475,14 +4721,14 @@ pub fn run(
                     }
                     if menu_page==MenuPage::WorldMap && settings.world_map_style==MapStyle::Original && !original_map_requested {
                         original_map_requested=true;
-                        let root=whole_element.clone();let (tx,rx)=std::sync::mpsc::channel();
-                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_map(&root));});
+                        let root=whole_element.clone();let zone=current_map.id.clone();let (tx,rx)=std::sync::mpsc::channel();
+                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_map_for_map(&root,&zone));});
                         original_map_rx=Some(rx);
                     }
                     if settings.minimap_style==MapStyle::Original && !original_minimap_requested {
                         original_minimap_requested=true;
-                        let root=whole_element.clone();let (tx,rx)=std::sync::mpsc::channel();
-                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_minimap(&root));});
+                        let root=whole_element.clone();let zone=current_map.id.clone();let (tx,rx)=std::sync::mpsc::channel();
+                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_minimap_for_map(&root,&zone));});
                         original_minimap_rx=Some(rx);
                     }
                     if let Some(rx)=&original_map_rx {if let Ok(result)=rx.try_recv(){
@@ -4493,8 +4739,13 @@ pub fn run(
                         match result { Ok(img)=>{let size=[img.width() as usize,img.height() as usize];let pixels=img.into_raw();let color=egui::ColorImage::from_rgba_unmultiplied(size,&pixels);original_minimap_id=Some(egui_ctx.load_texture("original minimap",color,egui::TextureOptions::LINEAR));},Err(e)=>{eprintln!("Original minimap: {e}");original_minimap_error=Some(e);}}
                         original_minimap_rx=None;
                     }}
+                    let timing_frame_start = frame_timing.then(Instant::now);
+                    let timing_acquire_start = frame_timing.then(Instant::now);
                     match surface.get_current_texture() {
                         Ok(frame) => {
+                            if let Some(start) = timing_acquire_start {
+                                timing_acquire += start.elapsed();
+                            }
                             let surface_view = frame.texture.create_view(&Default::default());
                             // Composition target: the whole-frame gamma intermediate, else the
                             // present-encode intermediate, else the swapchain itself. This is
@@ -4506,6 +4757,7 @@ pub fn run(
                             // present it into `scene_view` before the UI pass loads that result.
                             let world_view = render_scale.view();
                             let world_raw_view = render_scale.raw_view();
+                            let timing_render_start = frame_timing.then(Instant::now);
                             renderer.render(
                                 &world_view,
                                 &world_raw_view,
@@ -4514,6 +4766,9 @@ pub fn run(
                                 applied_extent.0,
                                 applied_extent.1,
                             );
+                            if let Some(start) = timing_render_start {
+                                timing_render += start.elapsed();
+                            }
                             render_scale.blit(&renderer.device, &renderer.queue, scene_view);
                             // Refresh the top-down view on every presented frame. The old
                             // 350ms timer capped minimap motion to fewer than 3 FPS.
@@ -4521,12 +4776,16 @@ pub fn run(
                             // original style draws client artwork instead, so the
                             // overhead pass is skipped rather than rendered and
                             // hidden.
+                            let timing_minimap_start = frame_timing.then(Instant::now);
                             if settings.show_minimap && settings.minimap_style==MapStyle::Realistic {
                                 renderer.render_minimap(&map_view,&map_depth,&camera,settings.minimap_range,false);
                             }
                             if menu_page==MenuPage::WorldMap && settings.world_map_style==MapStyle::Realistic && map_refresh.elapsed()>=std::time::Duration::from_secs(2) {
                                 renderer.render_minimap(&full_map_view,&full_map_depth,&camera,0.,true);
                                 map_refresh=Instant::now();
+                            }
+                            if let Some(start) = timing_minimap_start {
+                                timing_minimap += start.elapsed();
                             }
                             renderer.modules.prepare_librarian_preview(&renderer.device, &renderer.queue, &mut egui_renderer, format, menu_page==MenuPage::Modules);
                             if menu_page.is_open() || settings.show_minimap || renderer.modules.overlay_active() || zone_banner.as_ref().is_some_and(|(_,t)|t.elapsed().as_secs_f32()<4.) {
@@ -4583,9 +4842,87 @@ pub fn run(
                                     }
                                     if menu_page==MenuPage::Teleports {
                                         egui::Window::new("TELEPORT LIST  |  ESC to go back").default_pos(egui::pos2(16.,16.)).default_size(egui::vec2(540.,570.)).min_size(egui::vec2(340.,280.)).max_height(config.height as f32/window.scale_factor() as f32-35.).collapsible(false).resizable(true).show(ctx,|ui|{
-                                            ui.heading("Explore destinations");ui.label(egui::RichText::new("Locations and coordinates from the client’s world_targets.txt").small().weak());ui.add_space(6.);
+                                            ui.heading("Explore destinations");
+                                            ui.label(egui::RichText::new("World selection and locations").small().weak());
+                                            ui.add_space(4.);
+                                            ui.label("Selected world");
+                                            let selected_world_label = world_catalog.maps.iter()
+                                                .find(|map| map.id == world_choice)
+                                                .map(|map| map.label())
+                                                .unwrap_or_else(|| current_map.label());
+                                            ui.horizontal(|ui| {
+                                                let response = egui::ComboBox::from_id_source("teleport_world_selector")
+                                                    .width(ui.available_width().min(350.))
+                                                    .selected_text(selected_world_label)
+                                                    .show_ui(ui, |ui| {
+                                                        egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
+                                                            for map in &world_catalog.maps {
+                                                                ui.selectable_value(&mut world_choice, map.id.clone(), map.label())
+                                                                    .on_hover_text(map.tooltip());
+                                                            }
+                                                        });
+                                                    }).response;
+                                                if !world_change_error.is_empty() { response.on_hover_text(world_change_error.as_str()); }
+                                            });
+                                            if let Some(warning) = &world_catalog.warning {
+                                                ui.label(egui::RichText::new(warning.as_str()).small().color(egui::Color32::YELLOW));
+                                            }
+                                            ui.horizontal(|ui| {
+                                                let chosen = world_catalog.maps.iter().find(|map| map.id == world_choice);
+                                                let can_change = chosen.is_some_and(|map| map.id != current_map.id);
+                                                if ui.add_enabled(can_change, egui::Button::new("Change world")).on_hover_text("Reload the explorer with the selected client map; view settings are saved first.").clicked() {
+                                                    let map_id = world_choice.clone();
+                                                    let display = chosen.map(|map| map.label()).unwrap_or(map_id.clone());
+                                                    let executable = match std::env::current_exe() {
+                                                        Ok(path) => path,
+                                                        Err(e) => { world_change_error = format!("Cannot restart the explorer: {e}"); return; }
+                                                    };
+                                                    if !crate::world_catalog::valid_world_id(&map_id) {
+                                                        world_change_error = format!("Unsafe world folder name: {map_id}");
+                                                        return;
+                                                    }
+                                                    settings.selected_world = map_id.clone();
+                                                    if let Err(e) = settings.save() { eprintln!("Settings save before world change: {e}"); }
+                                                    let files = crate::world_handoff::Files::new();
+                                                    let mut command = std::process::Command::new(executable);
+                                                    command
+                                                        .arg(&client_root)
+                                                        .arg("--world")
+                                                        .arg(&settings.selected_world);
+                                                    files.configure(&mut command);
+                                                    match command.spawn() {
+                                                        Ok(child) => {
+                                                            eprintln!("Loading world {display} in replacement process {}", child.id());
+                                                            let (tx, rx) = std::sync::mpsc::channel();
+                                                            files.watch(child, tx);
+                                                            world_handoff_rx = Some(rx);
+                                                            world_loading_status = format!("Loading {display}...");
+                                                            world_change_error.clear();
+                                                            menu_page = MenuPage::WorldLoading;
+                                                            keys.clear();
+                                                            return;
+                                                        }
+                                                        Err(e) => world_change_error = format!("Could not open {display}: {e}"),
+                                                    }
+                                                }
+                                                if let Some(map) = chosen {
+                                                    ui.label(egui::RichText::new(format!("{} readable world{}", world_catalog.maps.len(), if world_catalog.maps.len() == 1 { "" } else { "s" })).small().weak());
+                                                    let _ = map;
+                                                }
+                                            });
+                                            if !world_change_error.is_empty() { ui.colored_label(egui::Color32::LIGHT_RED, world_change_error.as_str()); }
+                                            ui.separator();
                                             ui.add(egui::TextEdit::singleline(&mut teleport_query).hint_text("Search locations or ID...").desired_width(f32::INFINITY));
+                                            if used_precinct_fallback && destinations.as_ref().is_ok_and(|list| !list.is_empty()) {
+                                                let message = if destinations.as_ref().is_ok_and(|list| list.iter().any(|destination| destination.name == "Map centre")) {
+                                                    "No world_targets.txt; showing the map centre instead."
+                                                } else {
+                                                    "No world_targets.txt; showing authored precinct zone centres instead."
+                                                };
+                                                ui.label(egui::RichText::new(message).small().weak());
+                                            }
                                             match &destinations {Ok(list)=>{
+                                                if list.is_empty() { ui.label(egui::RichText::new(format!("{} has no world_targets.txt destinations for this viewer.", current_map.id)).small().weak()); }
                                                 let q=teleport_query.trim().to_lowercase();let filtered=list.iter().filter(|p|q.is_empty() || p.name.to_lowercase().contains(&q) || p.id.to_string().contains(&q)).collect::<Vec<_>>();
                                                 ui.label(format!("{} of {} destinations",filtered.len(),list.len()));ui.separator();
                                                 egui::ScrollArea::vertical().max_height((ui.available_height()-42.).max(100.)).show(ui,|ui|{for place in filtered {
@@ -4601,7 +4938,7 @@ pub fn run(
                                         egui::Window::new("WORLD MAP  |  M or ESC to close").default_pos(egui::pos2(16.,16.)).default_size(egui::vec2((screen_w-32.).min(760.),(screen_h-32.).min(900.))).min_size(egui::vec2(330.,300.)).max_height(screen_h-35.).collapsible(false).resizable(true).show(ctx,|ui|{
                                             ui.label(egui::RichText::new("North: up  |  East: right  |  Mouse wheel: zoom").small().strong());
                                             if settings.world_map_style==MapStyle::Realistic && !renderer.world_done {ui.horizontal_wrapped(|ui|{ui.label(egui::RichText::new("Distant scenery: ").small().weak());if settings.detail.terrain_cutoff {ui.label("Scenery follows the resident window");}else if settings.whole_world {ui.label(egui::RichText::new(&world_status).small().weak());}else if ui.button("Load whole world scenery").clicked(){settings.whole_world=true;}});}
-                                            let remaining=(ui.available_height()-78.).max(100.);let visible_width=ui.available_width();let base_width=visible_width.min(remaining*8./11.).max(120.);let image_size=egui::vec2(base_width*map_zoom,base_width*map_zoom*11./8.);
+                                            let remaining=(ui.available_height()-78.).max(100.);let visible_width=ui.available_width();let base_width=visible_width.min(remaining*map_aspect).max(120.);let image_size=egui::vec2(base_width*map_zoom,base_width*map_zoom/map_aspect);
                                             let texture=if settings.world_map_style==MapStyle::Original {original_map_id.as_ref().map(|t|t.id())} else {Some(full_map_id)};
                                             let mut zoom_anchor=None;
                                             let scroll=egui::ScrollArea::both().max_height(remaining).auto_shrink([false,false]).show(ui,|ui|{
@@ -4643,6 +4980,35 @@ pub fn run(
                                         );
                                     }
                                     if settings.show_zone_entry {if let Some((name,started))=&zone_banner {let elapsed=started.elapsed().as_secs_f32();if elapsed<4. {let alpha=(elapsed.min(4.-elapsed)*2.).clamp(0.,1.);egui::Area::new(egui::Id::new("zone-entry")).anchor(egui::Align2::CENTER_TOP,egui::vec2(0.,65.)).interactable(false).show(ctx,|ui|{ui.label(egui::RichText::new(format!("Entering {name}")).size(24.).color(egui::Color32::from_white_alpha((alpha*255.) as u8)));});}}}
+                                    if menu_page == MenuPage::WorldLoading {
+                                        let screen = ctx.screen_rect();
+                                        ctx.layer_painter(egui::LayerId::new(
+                                            egui::Order::Foreground,
+                                            egui::Id::new("world-loading-overlay"),
+                                        ))
+                                        .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(220));
+                                        egui::Area::new(egui::Id::new("world-loading-panel"))
+                                            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                                            .interactable(false)
+                                            .show(ctx, |ui| {
+                                                egui::Frame::none()
+                                                    .fill(egui::Color32::from_rgb(28, 34, 39))
+                                                    .rounding(12.0)
+                                                    .inner_margin(egui::Margin::same(24.0))
+                                                    .show(ui, |ui| {
+                                                        ui.set_min_width(390.0);
+                                                        ui.vertical_centered(|ui| {
+                                                            ui.heading("Loading world");
+                                                            ui.add_space(10.0);
+                                                            ui.label(&world_loading_status);
+                                                            ui.add_space(14.0);
+                                                            ui.add(egui::Spinner::new().size(30.0));
+                                                            ui.add_space(8.0);
+                                                            ui.label("This window will switch over when the new map is ready.");
+                                                        });
+                                                    });
+                                            });
+                                    }
                                 });
                                 egui_state.handle_platform_output(&window,output.platform_output);
                                 let jobs=egui_ctx.tessellate(output.shapes,output.pixels_per_point);
@@ -4675,7 +5041,39 @@ pub fn run(
                                     frame_gamma_setting,
                                 );
                             }
+                            let timing_present_start = frame_timing.then(Instant::now);
                             frame.present();
+                            if let Some(start) = timing_present_start {
+                                timing_present += start.elapsed();
+                            }
+                            if let Some(start) = timing_frame_start {
+                                timing_frame += start.elapsed();
+                                timing_frames += 1;
+                                let window_elapsed = timing_window.elapsed();
+                                if window_elapsed >= std::time::Duration::from_secs(1) {
+                                    let frames = timing_frames.max(1) as f64;
+                                    eprintln!(
+                                        "Frame timing: {:.1} FPS; interval {:.2} ms; surface acquire {:.2} ms; world CPU submit {:.2} ms; map CPU submit {:.2} ms; present call {:.2} ms (GPU execution is not included)",
+                                        frames / window_elapsed.as_secs_f64(),
+                                        timing_frame.as_secs_f64() * 1000. / frames,
+                                        timing_acquire.as_secs_f64() * 1000. / frames,
+                                        timing_render.as_secs_f64() * 1000. / frames,
+                                        timing_minimap.as_secs_f64() * 1000. / frames,
+                                        timing_present.as_secs_f64() * 1000. / frames,
+                                    );
+                                    timing_window = Instant::now();
+                                    timing_frames = 0;
+                                    timing_frame = std::time::Duration::ZERO;
+                                    timing_acquire = std::time::Duration::ZERO;
+                                    timing_render = std::time::Duration::ZERO;
+                                    timing_minimap = std::time::Duration::ZERO;
+                                    timing_present = std::time::Duration::ZERO;
+                                }
+                            }
+                            if !handoff_ready_signaled {
+                                crate::world_handoff::signal_ready();
+                                handoff_ready_signaled = true;
+                            }
                             if software_adapter { renderer.device.poll(wgpu::Maintain::Wait); }
                         }
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -4698,7 +5096,38 @@ pub fn run(
                 camera.yaw -= delta.0 as f32 * settings.sensitivity;
                 camera.pitch = (camera.pitch - delta.1 as f32 * settings.sensitivity).clamp(-1.5, 1.5);
             }
-            Event::AboutToWait => window.request_redraw(),
+            Event::AboutToWait => {
+                let mut completion = None;
+                if let Some(receiver) = &world_handoff_rx {
+                    for message in receiver.try_iter() {
+                        match message {
+                            crate::world_handoff::Message::Progress(status) => {
+                                world_loading_status = status;
+                            }
+                            crate::world_handoff::Message::Ready => completion = Some(Ok(())),
+                            crate::world_handoff::Message::Failed(error) => {
+                                completion = Some(Err(error));
+                            }
+                        }
+                    }
+                }
+                if let Some(result) = completion {
+                    world_handoff_rx = None;
+                    match result {
+                        Ok(()) => target.exit(),
+                        Err(error) => {
+                            world_change_error = error;
+                            settings.selected_world = current_map.id.clone();
+                            world_choice = current_map.id.clone();
+                            if let Err(save_error) = settings.save() {
+                                eprintln!("Could not restore selected world after failed handoff: {save_error}");
+                            }
+                            menu_page = MenuPage::Teleports;
+                        }
+                    }
+                }
+                window.request_redraw();
+            },
             _ => {}
         })
         .map_err(|e| e.to_string())
@@ -4909,6 +5338,8 @@ pub fn preview(
                     );
                     renderer.world_draw_cmds =
                         crate::world_objects::GpuPage::world_commands(&renderer.world_pages);
+                    renderer.world_sdr_draw_cmds =
+                        crate::world_objects::GpuPage::world_sdr_commands(&renderer.world_pages);
                     renderer.world_done = true;
                     break;
                 }
@@ -5072,6 +5503,22 @@ pub fn preview(
 #[cfg(test)]
 mod water_batch_tests {
     use super::*;
+
+    #[test]
+    fn mailbox_present_is_preferred_without_changing_fifo_fallback() {
+        assert_eq!(
+            preferred_present_mode(
+                &[wgpu::PresentMode::Fifo, wgpu::PresentMode::Mailbox],
+                wgpu::PresentMode::Fifo,
+            ),
+            wgpu::PresentMode::Mailbox
+        );
+        assert_eq!(
+            preferred_present_mode(&[wgpu::PresentMode::Fifo], wgpu::PresentMode::Fifo),
+            wgpu::PresentMode::Fifo
+        );
+    }
+
     fn batch(bounds: [f32; 4], height: f32) -> WaterBatch {
         WaterBatch {
             simple: false,
@@ -5080,6 +5527,12 @@ mod water_batch_tests {
             height,
             bounds,
         }
+    }
+    #[test]
+    fn top_down_minimap_water_bounds_reject_off_window_batches() {
+        let matrix = minimap_matrix(0., 0., 10.);
+        assert!(batch([-5., 5., -5., 5.], 0.).visible(matrix));
+        assert!(!batch([100., 110., -5., 5.], 0.).visible(matrix));
     }
     #[test]
     fn escape_navigates_menu_pages() {
@@ -5323,6 +5776,8 @@ mod frame_snapshot_tests {
         let src = source();
         assert!(src.contains("entry_point: \"fs_sdr\""));
         assert!(src.contains("p.set_pipeline(&self.sdr_blend_pipeline);"));
+        assert!(src.contains("filter_sdr_indices"));
+        assert!(src.contains("draw_world_sdr"));
     }
 }
 

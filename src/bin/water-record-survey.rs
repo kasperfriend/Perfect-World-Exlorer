@@ -1,5 +1,7 @@
 //! Survey real ECWLD/ECBSD water and authored shoreline records.
 #![allow(dead_code)]
+#[path = "../loading_workers.rs"]
+mod loading_workers;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../scene.rs"]

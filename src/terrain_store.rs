@@ -28,6 +28,33 @@ struct Record {
     size: usize,
     hash: [u8; 32],
 }
+
+/// Losslessly encoded, compressed terrain payload ready for ordered cache I/O.
+pub struct PackedBlock {
+    hash: [u8; 32],
+    bytes: Vec<u8>,
+}
+
+pub fn prepare_block(
+    heights: &[f32],
+    normals: &[[i8; 3]],
+    side: usize,
+) -> Result<PackedBlock, String> {
+    let cells = side
+        .checked_mul(side)
+        .ok_or("terrain block size overflow")?;
+    if side == 0 || heights.len() != cells || normals.len() != cells {
+        return Err("invalid terrain cache block".into());
+    }
+    let raw = encode(heights, normals, side);
+    let hash = Sha256::digest(&raw).into();
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(&raw).map_err(|e| e.to_string())?;
+    Ok(PackedBlock {
+        hash,
+        bytes: encoder.finish().map_err(|e| e.to_string())?,
+    })
+}
 struct Page {
     heights: Vec<f32>,
     normals: Vec<[i8; 3]>,
@@ -439,6 +466,11 @@ impl Builder {
         self.identity = Some(identity.to_string());
         self
     }
+    /// Set the cache identity after a cold build has hashed its source tiles
+    /// in the same pass that read them for terrain decoding.
+    pub fn set_identity(&mut self, identity: &str) {
+        self.identity = Some(identity.to_string());
+    }
     /// Drop everything and remove a half-written session object.
     fn abandon(&mut self) {
         self.resident = None;
@@ -481,24 +513,35 @@ impl Builder {
         if self.records[id].is_some() {
             return Err("duplicate terrain cache block".into());
         }
-        let raw = encode(heights, normals, self.side);
-        let hash = Sha256::digest(&raw).into();
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
-        encoder.write_all(&raw).map_err(|e| e.to_string())?;
-        let packed = encoder.finish().map_err(|e| e.to_string())?;
+        self.block_packed(bx, by, prepare_block(heights, normals, self.side)?)
+    }
+    pub fn block_packed(
+        &mut self,
+        bx: usize,
+        by: usize,
+        packed: PackedBlock,
+    ) -> Result<(), String> {
+        if self.resident.is_some() || bx >= self.width / self.side || by >= self.height / self.side
+        {
+            return Err("invalid packed terrain cache block".into());
+        }
+        let id = by * (self.width / self.side) + bx;
+        if self.records[id].is_some() {
+            return Err("duplicate terrain cache block".into());
+        }
         let file = self.file.as_mut().unwrap();
         let mut header = (id as u64).to_le_bytes().to_vec();
-        header.extend_from_slice(&(packed.len() as u64).to_le_bytes());
+        header.extend_from_slice(&(packed.bytes.len() as u64).to_le_bytes());
         file.write_all(&header)
-            .and_then(|_| file.write_all(&packed))
+            .and_then(|_| file.write_all(&packed.bytes))
             .map_err(|e| format!("terrain cache write: {e}"))?;
         self.hash.update(&header);
-        self.hash.update(&packed);
-        let offset = file.stream_position().map_err(|e| e.to_string())? - packed.len() as u64;
+        self.hash.update(&packed.bytes);
+        let offset = file.stream_position().map_err(|e| e.to_string())? - packed.bytes.len() as u64;
         self.records[id] = Some(Record {
             offset,
-            size: packed.len(),
-            hash,
+            size: packed.bytes.len(),
+            hash: packed.hash,
         });
         Ok(())
     }
@@ -650,20 +693,60 @@ fn safe_name(name: &str) -> bool {
 /// patch, a repacked archive or a different world cannot resolve to the wrong
 /// cached grid. Reading the sources is one sequential pass; it replaces the
 /// per-block zlib decode, XOR plane encode, SHA-256 and write of a cold build.
+/// Incremental content identity so the cold terrain pass can hash each tile
+/// while its bytes are already resident for validation/decode.
+pub struct SourceIdentity(Sha256);
+
+impl SourceIdentity {
+    pub fn new(header: &[u8], dir: &Path) -> Self {
+        let mut hash = Sha256::new();
+        hash.update(b"PWTSRC01");
+        // Two instance maps can share a TRN2 header and subterrain names. The
+        // map folder keeps their warm-start caches separate even when bytes match.
+        if let Some(map) = dir.file_name().and_then(|name| name.to_str()) {
+            hash.update((map.len() as u64).to_le_bytes());
+            hash.update(map.as_bytes());
+        }
+        hash.update((header.len() as u64).to_le_bytes());
+        hash.update(header);
+        Self(hash)
+    }
+
+    pub fn add_tile(&mut self, name: &str, bytes: &[u8]) {
+        self.0.update((name.len() as u64).to_le_bytes());
+        self.0.update(name.as_bytes());
+        self.0.update((bytes.len() as u64).to_le_bytes());
+        self.0.update(bytes);
+    }
+
+    pub fn finish(self) -> String {
+        hex(self.0.finalize().as_slice())
+    }
+}
+
 pub fn source_identity(header: &[u8], dir: &Path, names: &[String]) -> Result<String, String> {
-    let mut hash = Sha256::new();
-    hash.update(b"PWTSRC01");
-    hash.update((header.len() as u64).to_le_bytes());
-    hash.update(header);
+    let mut identity = SourceIdentity::new(header, dir);
     for name in names {
         let bytes =
             fs::read(dir.join(format!("{name}.t2bk"))).map_err(|e| format!("{name}: {e}"))?;
-        hash.update((name.len() as u64).to_le_bytes());
-        hash.update(name.as_bytes());
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(&bytes);
+        identity.add_tile(name, &bytes);
     }
-    Ok(hex(hash.finalize().as_slice()))
+    Ok(identity.finish())
+}
+
+/// Whether there is an index that might be a warm-cache hit. On a brand-new
+/// cache directory there is no reason to hash every source file before the
+/// mandatory cold decode; that pass computes this same identity incrementally.
+pub fn might_have_warm_cache(root: &Path) -> bool {
+    match fs::read_dir(root) {
+        Ok(entries) => entries.filter_map(Result::ok).any(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension.to_string_lossy() == "index")
+        }),
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
 }
 
 fn take_u64(bytes: &[u8], pos: &mut usize) -> Option<u64> {
@@ -826,7 +909,7 @@ pub fn restore(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("{}: {e}", index.display())),
     };
-    let Some((records, pages_name, pages_digest)) = parse_manifest(&bytes, width, height, side)
+    let Some((records, pages_name, _pages_digest)) = parse_manifest(&bytes, width, height, side)
     else {
         eprintln!(
             "Terrain cache index {} does not match this world; rebuilding from the client",
@@ -839,22 +922,13 @@ pub fn restore(
         Ok(file) => file,
         Err(_) => return Ok(None),
     };
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 65536];
-    loop {
-        match file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => hasher.update(&buf[..n]),
-            Err(_) => return Ok(None),
-        }
-    }
-    if hasher.finalize().as_slice() != pages_digest.as_slice() {
-        eprintln!(
-            "Terrain cache {} failed its content check; rebuilding from the client",
-            pages_path.display()
-        );
-        return Ok(None);
-    }
+    // Do not scan the entire pages file on every warm start. Every page carries
+    // its own SHA-256 in the authenticated index and Reader::page verifies that
+    // digest after reading/decompressing the page, before it can enter the mesh
+    // or hot cache. Thus only pages actually needed for this initial view incur
+    // I/O and validation; untouched pages are checked when first requested.
+    // The outer manifest digest is still checked by parse_manifest, while file
+    // extent checks below reject truncation before the store is published.
     let file_len = file.metadata().map_err(|e| e.to_string())?.len();
     if records.iter().any(|record| {
         record
@@ -1023,6 +1097,41 @@ mod tests {
         assert_eq!(paths().len(), 2);
     }
     #[test]
+    fn worker_prepared_blocks_match_serial_builder_output() {
+        let serial_dir = Temp::new();
+        let packed_dir = Temp::new();
+        let mut serial = Builder::new(&serial_dir.0, 8, 8, 4).unwrap();
+        let mut packed = Builder::new(&packed_dir.0, 8, 8, 4).unwrap();
+        for by in 0..2 {
+            for bx in 0..2 {
+                let mut heights = Vec::new();
+                let mut normals = Vec::new();
+                for y in 0..4 {
+                    for x in 0..4 {
+                        let world_x = bx * 4 + x;
+                        let world_y = by * 4 + y;
+                        heights.push(height(world_x, world_y));
+                        normals.push(normal(world_x, world_y));
+                    }
+                }
+                serial.block(bx, by, &heights, &normals).unwrap();
+                packed
+                    .block_packed(bx, by, prepare_block(&heights, &normals, 4).unwrap())
+                    .unwrap();
+            }
+        }
+        let (serial_heights, serial_normals) = serial.finish(1024).unwrap();
+        let (packed_heights, packed_normals) = packed.finish(1024).unwrap();
+        for i in 0..64 {
+            assert_eq!(
+                serial_heights.at(i).to_bits(),
+                packed_heights.at(i).to_bits()
+            );
+            assert_eq!(serial_normals.at(i), packed_normals.at(i));
+        }
+    }
+
+    #[test]
     fn damaged_page_never_silently_becomes_geometry() {
         let dir = Temp::new();
         let (h, _) = fixture(&dir.0, 224, false);
@@ -1144,7 +1253,9 @@ mod tests {
     #[test]
     fn warm_start_reuses_the_index_and_checks_every_input() {
         let dir = Temp::new();
+        assert!(!might_have_warm_cache(&dir.0));
         let (h, n) = fixture_with_identity(&dir.0, "source-one");
+        assert!(might_have_warm_cache(&dir.0));
         assert_grid(&h, &n);
         drop(h);
         drop(n);
@@ -1194,7 +1305,9 @@ mod tests {
             .is_none());
         fs::write(&index, &original).unwrap();
 
-        // A good index over a damaged pages object fails the stream hash.
+        // Page payloads are verified lazily: a damaged, not-yet-read page does
+        // not force an up-front full-file scan, but must fail before it can be
+        // returned as geometry.
         let pages = fs::read_dir(&dir.0)
             .unwrap()
             .filter_map(|entry| {
@@ -1207,15 +1320,17 @@ mod tests {
         let last = bytes.len() - 1;
         bytes[last] ^= 0xff;
         fs::write(&pages, &bytes).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+        let (heights, _) = restore(&dir.0, "source-damaged", 32, 24, 4, 224)
             .unwrap()
-            .is_none());
-        // And the intact object still restores once it is written back.
+            .expect("a valid manifest and in-bounds pages file restore without a full scan");
+        assert!(heights.reader().page(23 * 32 + 31).is_err());
+        // And the intact object restores and reads normally once repaired.
         bytes[last] ^= 0xff;
         fs::write(&pages, &bytes).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+        let (heights, _) = restore(&dir.0, "source-damaged", 32, 24, 4, 224)
             .unwrap()
-            .is_some());
+            .expect("intact pages file restores");
+        assert_eq!(heights.at(23 * 32 + 31), height(31, 23));
     }
 
     #[test]
@@ -1228,6 +1343,9 @@ mod tests {
         let names = vec!["a".to_string()];
         write(b"first payload");
         let one = source_identity(header, &sub, &names).unwrap();
+        let mut incremental = SourceIdentity::new(header, &sub);
+        incremental.add_tile("a", b"first payload");
+        assert_eq!(incremental.finish(), one);
         assert_eq!(one.len(), 64, "sha-256 as hex");
         assert!(one.chars().all(|c| c.is_ascii_hexdigit()));
         write(b"second payload");
