@@ -105,6 +105,7 @@ impl WorldMap {
                 fallback_name
             }
         });
+        let is_main_world = id.eq_ignore_ascii_case("world");
         Some(Self {
             id,
             name,
@@ -116,26 +117,12 @@ impl WorldMap {
             } else {
                 records.iter().map(|r| r.id).collect()
             },
-            rows: records.first().map_or_else(
-                || {
-                    if id.eq_ignore_ascii_case("world") {
-                        11
-                    } else {
-                        1
-                    }
-                },
-                |r| r.rows,
-            ),
-            cols: records.first().map_or_else(
-                || {
-                    if id.eq_ignore_ascii_case("world") {
-                        8
-                    } else {
-                        1
-                    }
-                },
-                |r| r.cols,
-            ),
+            rows: records
+                .first()
+                .map_or(if is_main_world { 11 } else { 1 }, |r| r.rows),
+            cols: records
+                .first()
+                .map_or(if is_main_world { 8 } else { 1 }, |r| r.cols),
         })
     }
 }
