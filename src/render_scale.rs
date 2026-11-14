@@ -71,7 +71,9 @@ fn target_texture(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
         view_formats: if format.is_srgb() { &alternate } else { &[] },
     })
 }
@@ -160,6 +162,12 @@ impl RenderScale {
     /// The pipeline, layout and sampler are size-independent and are reused.
     pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32) {
         self.frame = target_texture(device, self.format, w, h);
+    }
+
+    /// The raw texture; used by the FSR path to copy the world frame into
+    /// its native target.
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.frame
     }
 
     /// sRGB view the world is rendered into.
