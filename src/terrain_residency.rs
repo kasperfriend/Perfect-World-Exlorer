@@ -216,12 +216,12 @@ impl ClipFrustum {
         let w = matrix.w_axis;
         Self {
             planes: [
-                [w.x + x.x, w.y + x.y, w.z + x.z, w.w + x.w],
-                [w.x - x.x, w.y - x.y, w.z - x.z, w.w - x.w],
-                [w.x + y.x, w.y + y.y, w.z + y.z, w.w + y.w],
-                [w.x - y.x, w.y - y.y, w.z - y.z, w.w - y.w],
-                [z.x, z.y, z.z, z.w],
-                [w.x - z.x, w.y - z.y, w.z - z.z, w.w - z.w],
+                [x.x + x.w, y.x + y.w, z.x + z.w, w.x + w.w],
+                [x.w - x.x, y.w - y.x, z.w - z.x, w.w - w.x],
+                [x.y + x.w, y.y + y.w, z.y + z.w, w.y + w.w],
+                [x.w - x.y, y.w - y.y, z.w - z.y, w.w - w.y],
+                [x.z, y.z, z.z, w.z],
+                [x.w - x.z, y.w - y.z, z.w - z.z, w.w - w.z],
             ],
         }
     }
