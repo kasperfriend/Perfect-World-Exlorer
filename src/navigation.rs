@@ -16,7 +16,14 @@ pub fn destinations(path: &Path) -> Result<Vec<Destination>, String> {
 /// hard-coded `fields[2] == "1"` filter only found main-world targets and made
 /// an instance map's own destination list invisible.
 pub fn destinations_for_world(path: &Path, world_ids: &[u32]) -> Result<Vec<Destination>, String> {
-    let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        // Many instance maps have no authored teleport table. Absence means an
+        // empty list; callers can provide a safe local fallback without turning
+        // this optional file into a map/UI error.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
     if bytes.len() % 2 != 0 {
         return Err("odd UTF-16 destination file".into());
     }
@@ -317,6 +324,18 @@ mod tests {
         assert_eq!(other.len(), 1);
         assert_eq!(other[0].name, "Instance");
     }
+    #[test]
+    fn missing_map_targets_are_an_empty_optional_list() {
+        let root = std::env::temp_dir().join(format!("pw-no-map-targets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("world_targets.txt");
+        assert!(destinations_for_world(&path, &[101]).unwrap().is_empty());
+        std::fs::write(&path, [0xff]).unwrap();
+        assert!(destinations_for_world(&path, &[101]).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn orientation_roundtrip_and_terrain() {
         let m = MapSpace {

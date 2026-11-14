@@ -4053,7 +4053,7 @@ pub fn run(
     // treating this optional main-world list as a map-load failure.
     let used_precinct_fallback = !destinations_path.exists();
     let destinations = if used_precinct_fallback {
-        let fallback = ui_zones
+        let mut fallback = ui_zones
             .as_ref()
             .map(|zones| {
                 zones
@@ -4071,10 +4071,16 @@ pub fn run(
             })
             .unwrap_or_default();
         if fallback.is_empty() {
-            destinations_result
-        } else {
-            Ok(fallback)
+            // A missing optional destination table is normal on instance maps.
+            // Still provide a grounded local point if that map's precinct format
+            // has no authored centres, rather than surfacing a file-not-found UI.
+            fallback.push(crate::navigation::Destination {
+                id: 1,
+                name: "Map centre".into(),
+                position: [0.0, map_space.ground(0.0, 0.0), 0.0],
+            });
         }
+        Ok(fallback)
     } else {
         destinations_result
     };
@@ -4711,7 +4717,12 @@ pub fn run(
                                             ui.separator();
                                             ui.add(egui::TextEdit::singleline(&mut teleport_query).hint_text("Search locations or ID...").desired_width(f32::INFINITY));
                                             if used_precinct_fallback && destinations.as_ref().is_ok_and(|list| !list.is_empty()) {
-                                                ui.label(egui::RichText::new("No world_targets.txt; showing authored precinct zone centres instead.").small().weak());
+                                                let message = if destinations.as_ref().is_ok_and(|list| list.iter().any(|destination| destination.name == "Map centre")) {
+                                                    "No world_targets.txt; showing the map centre instead."
+                                                } else {
+                                                    "No world_targets.txt; showing authored precinct zone centres instead."
+                                                };
+                                                ui.label(egui::RichText::new(message).small().weak());
                                             }
                                             match &destinations {Ok(list)=>{
                                                 if list.is_empty() { ui.label(egui::RichText::new(format!("{} has no world_targets.txt destinations for this viewer.", current_map.id)).small().weak()); }
