@@ -3,8 +3,58 @@ use flate2::read::ZlibDecoder;
 use std::{
     env, fs,
     io::{self, BufWriter, Read, Write},
+    panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
 };
+
+static RECOVERABLE_MAP_OPERATION: AtomicBool = AtomicBool::new(false);
+
+fn recoverable_map_operation<T>(operation: impl FnOnce() -> T) -> Result<T, String> {
+    RECOVERABLE_MAP_OPERATION.store(true, Ordering::SeqCst);
+    let result = catch_unwind(AssertUnwindSafe(operation));
+    RECOVERABLE_MAP_OPERATION.store(false, Ordering::SeqCst);
+    result.map_err(|payload| {
+        let message = payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+            .unwrap_or_else(|| "unknown panic during map loading".into());
+        format!("unexpected error while loading/rendering the selected map: {message}")
+    })
+}
+
+/// Attempt the selected map once; if it returns an error or panics, retry the
+/// main world. This keeps an unsupported instance from pinning the user on a
+/// broken startup screen and makes the fallback policy testable without a game client.
+fn load_with_main_world_fallback<T>(
+    preferred: &str,
+    mut load: impl FnMut(&str) -> Result<T, String>,
+) -> Result<(T, Option<String>), String> {
+    let attempt = |id: &str, load: &mut dyn FnMut(&str) -> Result<T, String>| {
+        match recoverable_map_operation(|| load(id))? {
+            Ok(value) => Ok(value),
+            Err(error) => Err(error),
+        }
+    };
+    match attempt(preferred, &mut load) {
+        Ok(value) => Ok((value, None)),
+        Err(first_error) if !preferred.eq_ignore_ascii_case("world") => {
+            match attempt("world", &mut load) {
+                Ok(value) => Ok((
+                    value,
+                    Some(format!(
+                        "Could not load map {preferred}; returned to the main world.\n\n{first_error}"
+                    )),
+                )),
+                Err(main_error) => Err(format!(
+                    "Could not load map {preferred} ({first_error}), and the main world fallback also failed ({main_error})."
+                )),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
 
 fn u32at(b: &[u8], i: usize) -> Result<u32, String> {
     let s = b.get(i..i + 4).ok_or("truncated data")?;
@@ -839,9 +889,13 @@ mod viewer;
 fn main() {
     #[cfg(windows)]
     std::panic::set_hook(Box::new(|info| {
-        windows_setup::show_error(&format!(
-            "Perfect World Explorer encountered an unexpected error:\n{info}"
-        ))
+        if RECOVERABLE_MAP_OPERATION.load(Ordering::SeqCst) {
+            eprintln!("Recovering from a map-loading error: {info}");
+        } else {
+            windows_setup::show_error(&format!(
+                "Perfect World Explorer encountered an unexpected error:\n{info}"
+            ));
+        }
     }));
     #[allow(unused_mut)]
     let mut args: Vec<_> = env::args_os().collect();
@@ -903,49 +957,96 @@ fn main() {
     objects::set_unbounded_textures(saved.all_to_vram);
     #[cfg(windows)]
     let loading = windows_setup::LoadingWindow::start();
-    let preferred_world = world_override
+    let mut preferred_world = world_override
         .as_deref()
-        .unwrap_or(saved.selected_world.as_str());
-    let loaded = terrain(&path, saved.all_to_vram, Some(preferred_world));
-    let result = loaded.and_then(|mut t| match args.len() {
+        .unwrap_or(saved.selected_world.as_str())
+        .to_string();
+    let (loaded, fallback_notice) = load_with_main_world_fallback(&preferred_world, |world| {
+        terrain(&path, saved.all_to_vram, Some(world))
+    })
+    .map(|(terrain, notice)| (Ok(terrain), notice))
+    .unwrap_or_else(|error| (Err(error), None));
+    if fallback_notice.is_some() {
+        preferred_world = "world".into();
+        saved.selected_world = "world".into();
+        if let Err(error) = saved.save() {
+            eprintln!("Could not persist main-world fallback: {error}");
+        }
+        let notice = fallback_notice.as_deref().unwrap_or_default();
+        eprintln!("{notice}");
         #[cfg(windows)]
-        2 => gpu::run(t, Some(loading)),
-        #[cfg(not(windows))]
-        2 => gpu::run(t),
-        3 => export_png(&t, Path::new(&args[2])),
-        4 if args[2] == "--preview-3d" => viewer::preview(&mut t, Path::new(&args[3])),
-        4 if args[2] == "--gpu-preview" => gpu::preview(t, Path::new(&args[3]), None),
-        9 if args[2] == "--gpu-preview-at" => {
-            let mut coords = [0f32; 5];
-            for i in 0..5 {
-                coords[i] = args[3 + i]
-                    .to_string_lossy()
-                    .parse::<f32>()
-                    .map_err(|_| "invalid camera number")?;
+        windows_setup::show_error(notice);
+    }
+    let client_root = path.clone();
+    let result = recoverable_map_operation(move || {
+        loaded.and_then(|mut t| match args.len() {
+            #[cfg(windows)]
+            2 => gpu::run(t, Some(loading)),
+            #[cfg(not(windows))]
+            2 => gpu::run(t),
+            3 => export_png(&t, Path::new(&args[2])),
+            4 if args[2] == "--preview-3d" => viewer::preview(&mut t, Path::new(&args[3])),
+            4 if args[2] == "--gpu-preview" => gpu::preview(t, Path::new(&args[3]), None),
+            9 if args[2] == "--gpu-preview-at" => {
+                let mut coords = [0f32; 5];
+                for i in 0..5 {
+                    coords[i] = args[3 + i]
+                        .to_string_lossy()
+                        .parse::<f32>()
+                        .map_err(|_| "invalid camera number")?;
+                }
+                gpu::preview(t, Path::new(&args[8]), Some(coords))
             }
-            gpu::preview(t, Path::new(&args[8]), Some(coords))
-        }
-        9 if args[2] == "--preview-at" => {
-            let mut coords = [0f32; 5];
-            for i in 0..5 {
-                coords[i] = args[3 + i]
-                    .to_string_lossy()
-                    .parse::<f32>()
-                    .map_err(|_| "invalid camera number")?;
+            9 if args[2] == "--preview-at" => {
+                let mut coords = [0f32; 5];
+                for i in 0..5 {
+                    coords[i] = args[3 + i]
+                        .to_string_lossy()
+                        .parse::<f32>()
+                        .map_err(|_| "invalid camera number")?;
+                }
+                viewer::preview_at(
+                    &mut t,
+                    Path::new(&args[8]),
+                    coords[0],
+                    coords[1],
+                    coords[2],
+                    coords[3],
+                    coords[4],
+                )
             }
-            viewer::preview_at(
-                &mut t,
-                Path::new(&args[8]),
-                coords[0],
-                coords[1],
-                coords[2],
-                coords[3],
-                coords[4],
-            )
-        }
-        _ => Err("invalid arguments".into()),
-    });
+            _ => Err("invalid arguments".into()),
+        })
+    })
+    .and_then(|result| result);
     if let Err(e) = result {
+        if !preferred_world.eq_ignore_ascii_case("world") {
+            saved.selected_world = "world".into();
+            if let Err(save_error) = saved.save() {
+                eprintln!("Could not persist main-world fallback: {save_error}");
+            }
+            let restarted = env::current_exe()
+                .map_err(|error| error.to_string())
+                .and_then(|exe| {
+                    std::process::Command::new(exe)
+                        .arg(&client_root)
+                        .arg("--world")
+                        .arg("world")
+                        .spawn()
+                        .map(|_| ())
+                        .map_err(|error| error.to_string())
+                });
+            if restarted.is_ok() {
+                let notice = format!(
+                    "Map {} failed after loading. The explorer is restarting in the main world.\n\n{e}",
+                    preferred_world
+                );
+                eprintln!("{notice}");
+                #[cfg(windows)]
+                windows_setup::show_error(&notice);
+                return;
+            }
+        }
         eprintln!("Error: {e}");
         #[cfg(windows)]
         windows_setup::show_error(&e);
@@ -955,6 +1056,51 @@ fn main() {
 
 #[cfg(test)]
 mod ram_export_tests {
+    #[test]
+    fn failed_instance_load_retries_main_world_once() {
+        let mut attempts = Vec::new();
+        let (loaded, notice) = super::load_with_main_world_fallback("a01", |id| {
+            attempts.push(id.to_string());
+            if id == "world" {
+                Ok("main terrain")
+            } else {
+                Err("instance bridge rejected a tree source".into())
+            }
+        })
+        .unwrap();
+        assert_eq!(loaded, "main terrain");
+        assert_eq!(attempts, ["a01", "world"]);
+        assert!(notice.unwrap().contains("returned to the main world"));
+    }
+
+    #[test]
+    fn main_world_failure_is_not_retried() {
+        let mut attempts = 0;
+        let error = super::load_with_main_world_fallback("world", |_| {
+            attempts += 1;
+            Err::<(), _>("broken main world".into())
+        })
+        .unwrap_err();
+        assert_eq!(error, "broken main world");
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn panic_while_loading_instance_retries_main_world() {
+        let mut attempts = Vec::new();
+        let (loaded, notice) = super::load_with_main_world_fallback("a02", |id| {
+            attempts.push(id.to_string());
+            if id == "a02" {
+                panic!("malformed instance terrain")
+            }
+            Ok("main terrain")
+        })
+        .unwrap();
+        assert_eq!(loaded, "main terrain");
+        assert_eq!(attempts, ["a02", "world"]);
+        assert!(notice.unwrap().contains("unexpected error"));
+    }
+
     #[test]
     fn streamed_png_preserves_decoded_rgb() {
         let path =
