@@ -991,7 +991,7 @@ fn main() {
     let result = recoverable_map_operation(move || {
         loaded.and_then(|mut t| match args.len() {
             #[cfg(windows)]
-            2 => gpu::run(t, Some(loading)),
+            2 => gpu::run(t, loading),
             #[cfg(not(windows))]
             2 => gpu::run(t),
             3 => export_png(&t, Path::new(&args[2])),
