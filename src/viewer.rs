@@ -358,7 +358,7 @@ fn render(
     let wz = (t.height as f32 * 0.5 - cam.y) * t.grid_spacing;
     // Same recovered `CECSceneBlock` ten-class selection as the GPU renderer
     // (0x424020). Preset 2 is the shipped `detail_scene = 1` default.
-    let placements = crate::gpu::ten_class_placements(t);
+    let placements = crate::gpu::ten_class_placements(t)?;
     let margin = 0.5 * t.scene.block_size.max(0.);
     let nearby = t.scenery_residency.select(&placements, [wx, wz], 2, margin);
     let ornament_count = t.objects.ornaments.len();

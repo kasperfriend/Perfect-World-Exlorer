@@ -549,51 +549,6 @@ mod tests {
     }
 }
 
-/// Load the retail client's animated water-normal sequence from its texture package.
-pub fn load_normals(element: &Path) -> Result<Vec<Vec<image::RgbaImage>>, String> {
-    use std::fs::File;
-    let mut file = File::open(element.join("textures.pck")).map_err(|e| e.to_string())?;
-    let entries = crate::pck::directory(&mut file)?;
-    let mut frames = Vec::new();
-    for i in 0..29 {
-        let name = format!("textures/water/waternormal/water_normal{i:02}.dds");
-        let e = entries
-            .iter()
-            .find(|e| e.name.eq_ignore_ascii_case(&name))
-            .ok_or_else(|| format!("missing {name}"))?;
-        let raw = crate::pck::read_entry(&mut file, e)?;
-        let img = match decode_water_dds_mips(&raw) {
-            Ok(levels) => levels,
-            Err(err) => {
-                // A malformed or unsupported lower mip must not prevent a
-                // client that previously loaded its base level from starting.
-                let mut base = raw.clone();
-                if base.len() >= 12 {
-                    let flags = u32::from_le_bytes(base[8..12].try_into().unwrap()) & !0x20000;
-                    base[8..12].copy_from_slice(&flags.to_le_bytes());
-                }
-                let levels = decode_water_dds_mips(&base).map_err(|e| format!("{name}: {e}"))?;
-                eprintln!("{name}: {err}; using base level");
-                levels
-            }
-        };
-        if let Some(first) = frames.first() {
-            let first: &Vec<image::RgbaImage> = first;
-            if img[0].dimensions() != first[0].dimensions() {
-                return Err("water normal sequence dimensions differ".into());
-            }
-        }
-        frames.push(img);
-    }
-    // A texture array needs a common chain length; keep every authored level
-    // shared by all frames rather than failing on an unusual archive.
-    let levels = frames.iter().map(Vec::len).min().unwrap_or(1);
-    for frame in &mut frames {
-        frame.truncate(levels);
-    }
-    Ok(frames)
-}
-
 // The retail water-normal DDS is uncompressed 32-bit ARGB, which image's DDS
 // decoder does not accept. Preserve all authored mip levels when present.
 #[cfg(test)]
@@ -733,31 +688,144 @@ pub(crate) fn decode_texture_mips(raw: &[u8]) -> Result<Vec<image::RgbaImage>, S
     Ok(levels)
 }
 
-/// Load the client's 30-frame alternate-water texture sequence.
-pub fn load_simple_frames(element: &Path) -> Result<Vec<Vec<image::RgbaImage>>, String> {
+/// Load both client water animation banks from one textures.pck directory scan.
+/// Each archive member is read/decompressed and its mip chain decoded by a
+/// bounded worker pool; output order and the per-sequence mip truncation remain
+/// identical to the original serial loaders.
+pub fn load_sequences(
+    element: &Path,
+) -> Result<(Vec<Vec<image::RgbaImage>>, Vec<Vec<image::RgbaImage>>), String> {
     use std::fs::File;
-    let mut file = File::open(element.join("textures.pck")).map_err(|e| e.to_string())?;
-    let entries = crate::pck::directory(&mut file)?;
-    let mut frames = Vec::with_capacity(30);
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let archive = element.join("textures.pck");
+    let mut index_file = File::open(&archive).map_err(|e| e.to_string())?;
+    let entries = crate::pck::directory(&mut index_file)?;
+    let mut by_name = std::collections::HashMap::<String, crate::pck::Entry>::with_capacity(entries.len());
+    for entry in entries {
+        // Keep the same first-match behavior as the old case-insensitive scan
+        // if a malformed archive repeats a normalized member name.
+        by_name.entry(entry.name.to_lowercase()).or_insert(entry);
+    }
+
+    // First 29 are animated normals; the next 30 are the alternate/lava bank.
+    let mut jobs = Vec::with_capacity(59);
+    for i in 0..29 {
+        let name = format!("textures/water/waternormal/water_normal{i:02}.dds");
+        let entry = by_name
+            .get(&name)
+            .cloned()
+            .ok_or_else(|| format!("missing {name}"))?;
+        jobs.push((name, entry, true));
+    }
     for i in 0..30 {
         let name = format!("textures/water/l/l{i}.dds");
-        let entry = entries
-            .iter()
-            .find(|e| e.name.eq_ignore_ascii_case(&name))
+        let entry = by_name
+            .get(&name)
+            .cloned()
             .ok_or_else(|| format!("missing {name}"))?;
-        let data = crate::pck::read_entry(&mut file, entry)?;
-        let levels = decode_texture_mips(&data).map_err(|e| format!("{name}: {e}"))?;
-        if let Some(first) = frames.first() {
-            let first: &Vec<image::RgbaImage> = first;
-            if first[0].dimensions() != levels[0].dimensions() {
-                return Err(format!("{name}: dimensions differ"));
-            }
+        jobs.push((name, entry, false));
+    }
+
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(4)
+        .min(jobs.len())
+        .max(1);
+    let next = AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::sync_channel(workers * 2);
+    let decoded = std::thread::scope(|scope| -> Result<Vec<Result<Vec<image::RgbaImage>, String>>, String> {
+        for _ in 0..workers {
+            let tx = tx.clone();
+            let jobs = &jobs;
+            let archive = &archive;
+            let next = &next;
+            scope.spawn(move || {
+                let mut file = File::open(archive);
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some((name, entry, normal)) = jobs.get(index) else {
+                        break;
+                    };
+                    let result = match &mut file {
+                        Ok(file) => crate::pck::read_entry(file, entry)
+                            .map_err(|e| format!("{name}: {e}"))
+                            .and_then(|raw| {
+                                if *normal {
+                                    match decode_water_dds_mips(&raw) {
+                                        Ok(levels) => Ok(levels),
+                                        Err(err) => {
+                                            // Retail tolerates a broken authored lower normal mip:
+                                            // retry the same base image with only that flag cleared.
+                                            let mut base = raw;
+                                            if base.len() >= 12 {
+                                                let flags = u32::from_le_bytes(
+                                                    base[8..12].try_into().unwrap(),
+                                                ) & !0x20000;
+                                                base[8..12].copy_from_slice(&flags.to_le_bytes());
+                                            }
+                                            decode_water_dds_mips(&base)
+                                                .map_err(|e| format!("{name}: {e}; {err}"))
+                                                .map(|levels| {
+                                                    eprintln!("{name}: {err}; using base level");
+                                                    levels
+                                                })
+                                        }
+                                    }
+                                } else {
+                                    decode_texture_mips(&raw).map_err(|e| format!("{name}: {e}"))
+                                }
+                            }),
+                        Err(error) => Err(format!("{}: {error}", archive.display())),
+                    };
+                    if tx.send((index, result)).is_err() {
+                        break;
+                    }
+                }
+            });
         }
-        frames.push(levels);
+        drop(tx);
+        let mut results: Vec<Option<Result<Vec<image::RgbaImage>, String>>> =
+            (0..jobs.len()).map(|_| None).collect();
+        for _ in 0..jobs.len() {
+            let (index, result) = rx
+                .recv()
+                .map_err(|_| "water texture workers stopped early")?;
+            results[index] = Some(result);
+        }
+        Ok(results.into_iter().map(Option::unwrap).collect())
+    })?;
+
+    let mut normals = Vec::with_capacity(29);
+    let mut alternate = Vec::with_capacity(30);
+    for (index, result) in decoded.into_iter().enumerate() {
+        let frame = result?;
+        if index < 29 {
+            if let Some(first) = normals.first() {
+                let first: &Vec<image::RgbaImage> = first;
+                if frame[0].dimensions() != first[0].dimensions() {
+                    return Err("water normal sequence dimensions differ".into());
+                }
+            }
+            normals.push(frame);
+        } else {
+            if let Some(first) = alternate.first() {
+                let first: &Vec<image::RgbaImage> = first;
+                if first[0].dimensions() != frame[0].dimensions() {
+                    return Err(format!("{}: dimensions differ", jobs[index].0));
+                }
+            }
+            alternate.push(frame);
+        }
     }
-    let count = frames.iter().map(Vec::len).min().unwrap_or(1);
-    for frame in &mut frames {
-        frame.truncate(count);
+    let normal_levels = normals.iter().map(Vec::len).min().unwrap_or(1);
+    for frame in &mut normals {
+        frame.truncate(normal_levels);
     }
-    Ok(frames)
+    let alternate_levels = alternate.iter().map(Vec::len).min().unwrap_or(1);
+    for frame in &mut alternate {
+        frame.truncate(alternate_levels);
+    }
+    Ok((normals, alternate))
 }

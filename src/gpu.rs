@@ -868,7 +868,12 @@ fn build(
     // Only the ornament class maps to Objects::load_ids indices; the other
     // nine classes use disjoint synthetic indices for the resident-bit set.
     let object_start = indices.len() as u32;
-    let scenery_placements = ten_class_placements(t);
+    let scenery_placements = ten_class_placements(t)?;
+    let authored_ornament_links: usize = t.scene.blocks.iter().map(|block| block.ornaments.len()).sum();
+    let unique_ornament_refs = scenery_placements
+        .iter()
+        .filter(|placement| placement.class == Class::Ornaments)
+        .count();
     let scenery_margin = 0.5 * t.scene.block_size.max(0.);
     let nearby = t.scenery_residency.select(
         &scenery_placements,
@@ -888,13 +893,16 @@ fn build(
     t.objects.load_ids(&ornament_ids)?;
     let tree_lod_scale = lod_scale(detail.scenery_quality, Class::Trees);
     eprintln!(
-        "Scenery residency: quality {} ({} native classes, tree LOD {:.3}, ornament distance {:.1}), {} resident, {} ornaments retained, {} unavailable model assets, {} loads, {} evictions, {} distance culls",
+        "Scenery residency: quality {} ({} native classes, tree LOD {:.3}, ornament distance {:.1}), {} resident, {}/{} unique ornament placements retained, {}/{} ECWLD links/models, {} unavailable model assets, {} loads, {} evictions, {} distance culls",
         detail.scenery_quality,
         Class::ALL.len(),
         tree_lod_scale,
         crate::scenery_visibility::ornament_distance(detail.scenery_quality),
         nearby.len(),
         ornament_ids.len(),
+        unique_ornament_refs,
+        authored_ornament_links,
+        t.objects.ornaments.len(),
         t.objects.unavailable_model_count(),
         t.scenery_residency.loads,
         t.scenery_residency.evictions,
@@ -1292,6 +1300,40 @@ fn fs_body(i:VOut, front:bool)->vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || 
 @fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }
 @fragment fn fs_sdr(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if !sdr_blend_band(i.kind) { discard; } return fs_body(i,front); }
 "#;
+fn world_loading_summary(
+    processed: usize,
+    skipped: usize,
+    stats: &crate::world_objects::DoneStats,
+) -> String {
+    let unavailable = stats.unavailable_models.len();
+    let examples = stats
+        .unavailable_models
+        .iter()
+        .take(4)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = unavailable.saturating_sub(4);
+    let missing = if unavailable == 0 {
+        String::new()
+    } else if more == 0 {
+        format!("; missing BMDs: {examples}")
+    } else {
+        format!("; missing BMDs: {examples} (+{more} more; see log)")
+    };
+    format!(
+        "Loaded {processed} placements; {unavailable} model assets unavailable, {skipped} meshes use fallback texture, {} unresolved texture references; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits{missing}",
+        stats.unresolved_rows,
+        stats.pages,
+        stats.atlas_pages,
+        stats.atlas_bytes >> 20,
+        stats.residency.peak_resident_bytes >> 20,
+        stats.residency.budget_bytes >> 20,
+        stats.residency.evictions,
+        stats.residency.alias_hits,
+    )
+}
+
 struct Renderer {
     /// Optional add-ons; default-disabled and absent from headless previews.
     modules: crate::modules::Modules,
@@ -1406,7 +1448,7 @@ pub(crate) fn depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
 /// box areas, grass areas, effects, EC models, critters, bezier routes, sounds.
 /// Ornament indices are the `Objects::load_ids` indices; other classes get
 /// disjoint synthetic indices so the same resident-bit set can cover all ten.
-pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Placement> {
+pub fn ten_class_placements(t: &Terrain) -> Result<Vec<crate::scenery_visibility::Placement>, String> {
     use crate::scenery_visibility::{Placement, Visibility};
     let mut out = Vec::new();
     let by_export: HashMap<u32, usize> = t
@@ -1417,6 +1459,7 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
         .map(|(i, o)| (o.export_id, i))
         .collect();
     let mut next = t.objects.ornaments.len();
+    let mut seen_ornaments = std::collections::HashSet::new();
     let hidden = Visibility {
         reflect: false,
         refract: false,
@@ -1445,15 +1488,25 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
             push(&mut out, center, Class::Water);
         }
         for r in &b.ornaments {
-            if let Some(&i) = by_export.get(&r.export_id) {
-                let o = &t.objects.ornaments[i];
-                out.push(Placement {
-                    index: i,
-                    center: [o.position[0], o.position[2]],
-                    visibility: Visibility::from_extra(o.extra),
-                    class: Class::Ornaments,
-                });
+            // ECWLD blocks may share a reference to one EC-BSD export record.
+            // The scene parser emits one placement per export ID, so mirror
+            // that here rather than duplicating its draw range in each block.
+            if !seen_ornaments.insert(r.export_id) {
+                continue;
             }
+            let Some(&i) = by_export.get(&r.export_id) else {
+                return Err(format!(
+                    "ECWLD ornament export {} in block ({},{}) has no EC-BSD model record",
+                    r.export_id, b.col, b.row
+                ));
+            };
+            let o = &t.objects.ornaments[i];
+            out.push(Placement {
+                index: i,
+                center: [o.position[0], o.position[2]],
+                visibility: Visibility::from_extra(o.extra),
+                class: Class::Ornaments,
+            });
         }
         for _ in &b.boxes {
             push(&mut out, center, Class::BoxAreas);
@@ -1477,7 +1530,17 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
             push(&mut out, [snd.position[0], snd.position[2]], Class::Sounds);
         }
     }
-    out
+    if seen_ornaments.len() != t.objects.ornaments.len() {
+        let missing = t.objects.ornaments.iter()
+            .filter(|ornament| !seen_ornaments.contains(&ornament.export_id))
+            .map(|ornament| ornament.export_id.to_string())
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "{} EC-BSD ornament model records have no ECWLD placement reference (export IDs: {})",
+            missing.len(), missing.iter().take(16).cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    Ok(out)
 }
 
 /// Reallocate every size-dependent world render target at the *scaled* render
@@ -3880,10 +3943,11 @@ async fn adapter(
     Ok((a, d, q))
 }
 pub fn run(
-    mut t: Terrain,
+    t: Terrain,
     #[cfg(windows)] loading: Option<crate::windows_setup::LoadingWindow>,
 ) -> Result<(), String> {
     let current_map = t.map.clone();
+    let map_title = t.map.label();
     let client_root = crate::world_catalog::client_root(&t.map.element);
     #[cfg(windows)]
     crate::windows_setup::loading_progress("Preparing GPU world and textures...".into());
@@ -3896,6 +3960,40 @@ pub fn run(
             .build(&event_loop)
             .map_err(|e| e.to_string())?,
     );
+    let mut camera = Camera::new(&t);
+    camera.underwater_fog = t
+        .environments
+        .underwater(camera.pos.to_array(), camera.time_of_day);
+    camera.air_fog = t
+        .environments
+        .atmosphere(camera.pos.to_array(), camera.time_of_day);
+    let mut settings = ViewSettings::load_with_default_fog(t.environments.auto_fog_enabled());
+    // The axial card rule is read by the player, not by this loop, so it has to
+    // be published before the first effect is built as well as on every change.
+    crate::gfx_player::set_shaft_mode(settings.effect_shaft);
+    let vegetation_authored_mips = settings.vegetation_authored_mips
+        || std::env::var_os("PW_VEGETATION_AUTHORED_MIPS").is_some();
+    // CPU scene construction does not need a graphics device. Run it while the
+    // adapter/device and swapchain initialize, keeping the same deterministic
+    // mesh build and loading feedback but shortening the serial startup chain.
+    let build_x = camera.pos.x;
+    let build_z = camera.pos.z;
+    let detail = settings.detail;
+    let build_worker = std::thread::Builder::new()
+        .name("initial-world-mesh-build".into())
+        .spawn(move || {
+            let mut residency = crate::terrain_residency::Residency::default();
+            let mesh = build(
+                &mut t,
+                build_x,
+                build_z,
+                detail,
+                &mut residency,
+                vegetation_authored_mips,
+            )?;
+            Ok::<_, String>((t, mesh))
+        })
+        .map_err(|e| format!("cannot start initial world build: {e}"))?;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()),
         ..Default::default()
@@ -3907,7 +4005,7 @@ pub fn run(
     let software_adapter = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
     window.set_title(&format!(
         "Perfect World Explorer — {} ({}) — click mouse to look, Esc menu, WASD fly",
-        t.map.label(),
+        map_title,
         adapter.get_info().name
     ));
     let caps = surface.get_capabilities(&adapter);
@@ -3932,35 +4030,16 @@ pub fn run(
             .push(surface_format.remove_srgb_suffix());
     }
     surface.configure(&device, &config);
-    let mut camera = Camera::new(&t);
-    camera.underwater_fog = t
-        .environments
-        .underwater(camera.pos.to_array(), camera.time_of_day);
-    camera.air_fog = t
-        .environments
-        .atmosphere(camera.pos.to_array(), camera.time_of_day);
-    let mut settings = ViewSettings::load_with_default_fog(t.environments.auto_fog_enabled());
-    // The axial card rule is read by the player, not by this loop, so it has to
-    // be published before the first effect is built as well as on every change.
-    crate::gfx_player::set_shaft_mode(settings.effect_shaft);
-    let vegetation_authored_mips = settings.vegetation_authored_mips
-        || std::env::var_os("PW_VEGETATION_AUTHORED_MIPS").is_some();
-    let mut residency = crate::terrain_residency::Residency::default();
-    let m = build(
-        &mut t,
-        camera.pos.x,
-        camera.pos.z,
-        settings.detail,
-        &mut residency,
-        vegetation_authored_mips,
-    )?;
+    let (mut t, mesh) = build_worker
+        .join()
+        .map_err(|_| "initial world build panicked")??;
     let mut renderer = Renderer::new(
         device,
         queue,
         format,
         config.width,
         config.height,
-        m,
+        mesh,
         &mut t,
         vegetation_authored_mips,
     )?;
@@ -4478,7 +4557,7 @@ pub fn run(
                             renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_cmds=crate::world_objects::GpuPage::world_commands(&renderer.world_pages);renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.atlas_pages,stats.atlas_bytes>>20,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_cmds=crate::world_objects::GpuPage::world_commands(&renderer.world_pages);renderer.world_done=true;world_status=world_loading_summary(processed,skipped,&stats);eprintln!("{world_status}");},
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}
@@ -4669,11 +4748,15 @@ pub fn run(
                                             ui.heading("Explore destinations");
                                             ui.label(egui::RichText::new("World selection and locations").small().weak());
                                             ui.add_space(4.);
-                                            ui.label("Current world");
+                                            ui.label("Selected world");
+                                            let selected_world_label = world_catalog.maps.iter()
+                                                .find(|map| map.id == world_choice)
+                                                .map(|map| map.label())
+                                                .unwrap_or_else(|| current_map.label());
                                             ui.horizontal(|ui| {
                                                 let response = egui::ComboBox::from_id_source("teleport_world_selector")
                                                     .width(ui.available_width().min(350.))
-                                                    .selected_text(current_map.label())
+                                                    .selected_text(selected_world_label)
                                                     .show_ui(ui, |ui| {
                                                         egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
                                                             for map in &world_catalog.maps {

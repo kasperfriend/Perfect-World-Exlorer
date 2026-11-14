@@ -242,6 +242,153 @@ struct Terrain {
     cloud_surface: Option<std::sync::Arc<cloud_surface::CloudSurface>>,
 }
 
+/// Non-terrain client assets are independent of TRN2 block decoding. Load them
+/// concurrently so archive parsing, SpeedTree cache work, and scene decoding
+/// overlap the terrain pipeline instead of extending it serially.
+struct WorldAssets {
+    scene: std::sync::Arc<scene::Scene>,
+    cloud_surface: Option<std::sync::Arc<cloud_surface::CloudSurface>>,
+    water: Vec<water::WaterArea>,
+    objects: objects::Objects,
+    models: world_models::Assets,
+    grass: grass::Grass,
+    trees: trees::Trees,
+    environments: environment::Environments,
+    scene_lights: std::sync::Arc<scene_lights::SceneLights>,
+}
+
+fn load_world_assets(
+    map: &world_catalog::WorldMap,
+    dir: &Path,
+    element: &Path,
+    width: usize,
+    height: usize,
+    grid_spacing: f32,
+) -> Result<WorldAssets, String> {
+    let scene_path = map.file("ecwld");
+    let world_scene = std::sync::Arc::new(scene::Scene::load(&scene_path)?);
+    if (world_scene.width - width as f32 * grid_spacing).abs() > 0.1
+        || (world_scene.length - height as f32 * grid_spacing).abs() > 0.1
+    {
+        return Err("ECWLD and TRN2 world dimensions differ".into());
+    }
+    let cloud_path = map.file("cld");
+    let cloud_surface = match fs::read(&cloud_path) {
+        Ok(bytes) => {
+            let cloud = cloud_surface::parse(&bytes)
+                .map_err(|e| format!("{}: {e}", cloud_path.display()))?;
+            let (cells, vertices, groups, indices) = cloud.cells.iter().flatten().fold(
+                (0usize, 0usize, 0usize, 0usize),
+                |(cells, vertices, groups, indices), cell| {
+                    (
+                        cells + usize::from(!cell.vertices.is_empty()),
+                        vertices + cell.vertices.len(),
+                        groups + cell.groups.len(),
+                        indices + cell.groups.iter().map(|g| g.indices.len()).sum::<usize>(),
+                    )
+                },
+            );
+            eprintln!("Loaded native MOXB cloud grid {}x{}: {cells} populated cells, {vertices} vertices, {groups} groups, {indices} indices", cloud.width, cloud.height);
+            Some(std::sync::Arc::new(cloud))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("{} unavailable; native cloud surface omitted", cloud_path.display());
+            None
+        }
+        Err(e) => return Err(format!("{}: {e}", cloud_path.display())),
+    };
+
+    let ornaments = world_scene.load_ornaments(&map.file("ecbsd"))?;
+    eprintln!("Loaded {} unique world ornament placements; nearby BMD meshes will stream during flight", ornaments.len());
+    let tree_count: usize = world_scene.blocks.iter().map(|b| b.trees.len()).sum();
+    let model_count: usize = world_scene.blocks.iter().map(|b| b.models.len()).sum();
+    eprintln!("Loaded scene placements: {tree_count} trees, {model_count} EC models");
+    let placements: Vec<_> = world_scene
+        .blocks
+        .iter()
+        .flat_map(|b| b.models.iter().cloned())
+        .collect();
+
+    // These asset groups read independent sources and do not depend on decoded
+    // terrain heights. Keep their original output intact, but let archives,
+    // tree caches and BSData work concurrently while terrain is also decoding.
+    let (water, objects, models, grass, trees, environments, scene_lights) =
+        std::thread::scope(|scope| -> Result<_, String> {
+            let water_worker = scope.spawn(|| water::load(&world_scene, dir));
+            let objects_worker = scope.spawn(move || objects::Objects::open(element, ornaments));
+            let models_worker = scope.spawn(move || {
+                let models = match world_models::Assets::open(element, placements.clone()) {
+                    Ok(models) => models,
+                    Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
+                };
+                eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (ordinary animated submission enabled unless PW_DISABLE_WORLD_MODELS is set)", models.assets.len(), models.instances.len(), models.unloaded.len());
+                for failure in &models.failures {
+                    eprintln!("EC model dependency: {failure}");
+                }
+                Ok::<_, String>(models)
+            });
+            let grass_worker = scope.spawn(|| grass::Grass::load(&world_scene, dir, element));
+            let tree_worker = scope.spawn(|| -> Result<trees::Trees, String> {
+                #[cfg(windows)]
+                windows_setup::loading_progress("Preparing trees (first run may take several minutes)...".into());
+                let tree_cache = if let Some(cache) = std::env::var_os("PW_TREE_CACHE") {
+                    PathBuf::from(cache)
+                } else {
+                    #[cfg(windows)]
+                    {
+                        windows_setup::prepare_trees_for_scene(element, &scene_path, world_scene.tree_types.len())?
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        PathBuf::from("tree-cache")
+                    }
+                };
+                let trees = trees::Trees::open(element, &world_scene, &tree_cache)?;
+                #[cfg(windows)]
+                if std::env::var_os("PW_TREE_CACHE").is_none() && trees.types.iter().any(|tree| tree.is_none()) {
+                    return Err(format!("Some prepared tree types could not be loaded. Close Perfect World Explorer, remove this cache folder, and try again:\n{}", tree_cache.display()));
+                }
+                Ok(trees)
+            });
+            let regional_worker = scope.spawn(|| {
+                let environments = environment::Environments::load(&world_scene, dir)?;
+                // Ordinary world-model receivers query these client records;
+                // static scenery keeps its separately traced baked-light path.
+                let lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
+                    Ok(lights) => {
+                        eprintln!("Loaded {} client scene lights (static query only)", lights.lights.len());
+                        lights
+                    }
+                    Err(e) => {
+                        eprintln!("Scene lights unavailable: {e}");
+                        scene_lights::SceneLights::default()
+                    }
+                };
+                Ok::<_, String>((environments, std::sync::Arc::new(lights)))
+            });
+
+            let water = water_worker.join().map_err(|_| "water-area loader panicked")??;
+            eprintln!("Loaded {} water areas from client BSData grids", water.len());
+            let objects = objects_worker.join().map_err(|_| "scenery object archive loader panicked")??;
+            let models = models_worker.join().map_err(|_| "EC model archive loader panicked")??;
+            let grass = grass_worker.join().map_err(|_| "grass loader panicked")??;
+            let trees = tree_worker.join().map_err(|_| "tree loader panicked")??;
+            let (environments, scene_lights) = regional_worker.join().map_err(|_| "regional world loader panicked")??;
+            Ok((water, objects, models, grass, trees, environments, scene_lights))
+        })?;
+    Ok(WorldAssets {
+        scene: world_scene,
+        cloud_surface,
+        water,
+        objects,
+        models,
+        grass,
+        trees,
+        environments,
+        scene_lights,
+    })
+}
+
 /// Everything one tile needs to decode its blocks: the tile's own bytes plus the
 /// shared tables. Bundled so a worker only needs a borrow of it.
 struct TileDecode<'a> {
@@ -583,6 +730,22 @@ fn terrain(
     if w * h > 100_000_000 {
         return Err("terrain too large".into());
     }
+    let assets_map = map.clone();
+    let assets_dir = dir.clone();
+    let assets_element = element.clone();
+    let world_asset_worker = std::thread::Builder::new()
+        .name("world-asset-load".into())
+        .spawn(move || {
+            load_world_assets(
+                &assets_map,
+                &assets_dir,
+                &assets_element,
+                w,
+                h,
+                grid_spacing,
+            )
+        })
+        .map_err(|e| format!("cannot start world asset loader: {e}"))?;
     let mut pos = loff + 4;
     let mut names = Vec::new();
     for _ in 0..count {
@@ -602,6 +765,31 @@ fn terrain(
     } else {
         terrain_store::source_identity(&t, &dir, &names)?
     };
+    // Independent texture-bank work can run alongside the terrain block
+    // decode. The selected sequences are immutable and produce the same mip
+    // chains as the former serial loader, while the existing progress window
+    // continues to report terrain tile progress.
+    let water_element = element.clone();
+    let water_texture_worker = std::thread::Builder::new()
+        .name("water-texture-load".into())
+        .spawn(move || water::load_sequences(&water_element))
+        .map_err(|e| format!("cannot start water texture loader: {e}"))?;
+    let material_dir = dir.clone();
+    let material_trn = t.clone();
+    let material_names = names.clone();
+    let material_worker = std::thread::Builder::new()
+        .name("terrain-material-load".into())
+        .spawn(move || {
+            material::Materials::load(
+                &material_dir,
+                &material_trn,
+                &material_names,
+                w,
+                h,
+                grid_spacing,
+            )
+        })
+        .map_err(|e| format!("cannot start terrain material loader: {e}"))?;
     let cached = if all_to_vram {
         None
     } else {
@@ -699,125 +887,34 @@ fn terrain(
         (None, Some(pages)) => pages.finish(terrain_store::budget())?,
         (None, None) => return Err("terrain cache was not built".into()),
     };
-    let scene_path = map.file("ecwld");
-    let world_scene = scene::Scene::load(&scene_path)?;
-    let cloud_path = map.file("cld");
-    let cloud_surface = match fs::read(&cloud_path) {
-        Ok(bytes) => {
-            let cloud = cloud_surface::parse(&bytes)
-                .map_err(|e| format!("{}: {e}", cloud_path.display()))?;
-            let (cell_count, vertex_count, group_count, index_count) =
-                cloud.cells.iter().flatten().fold(
-                    (0usize, 0usize, 0usize, 0usize),
-                    |(cells, vertices, groups, indices), cell| {
-                        (
-                            cells + usize::from(!cell.vertices.is_empty()),
-                            vertices + cell.vertices.len(),
-                            groups + cell.groups.len(),
-                            indices + cell.groups.iter().map(|g| g.indices.len()).sum::<usize>(),
-                        )
-                    },
-                );
-            eprintln!("Loaded native MOXB cloud grid {}x{}: {cell_count} populated cells, {vertex_count} vertices, {group_count} groups, {index_count} indices", cloud.width, cloud.height);
-            Some(std::sync::Arc::new(cloud))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
-                "{} unavailable; native cloud surface omitted",
-                cloud_path.display()
-            );
-            None
-        }
-        Err(e) => return Err(format!("{}: {e}", cloud_path.display())),
-    };
-    if (world_scene.width - w as f32 * grid_spacing).abs() > 0.1
-        || (world_scene.length - h as f32 * grid_spacing).abs() > 0.1
-    {
-        return Err("ECWLD and TRN2 world dimensions differ".into());
-    }
-    let water = water::load(&world_scene, &dir)?;
-    eprintln!(
-        "Loaded {} water areas from client BSData grids",
-        water.len()
-    );
-    let ecbsd_path = map.file("ecbsd");
-    let ornaments = world_scene.load_ornaments(&ecbsd_path)?;
-    eprintln!(
-        "Loaded {} unique world ornament placements; nearby BMD meshes will stream during flight",
-        ornaments.len()
-    );
-    let count_trees: usize = world_scene.blocks.iter().map(|b| b.trees.len()).sum();
-    let count_models: usize = world_scene.blocks.iter().map(|b| b.models.len()).sum();
-    eprintln!("Loaded scene placements: {count_trees} trees, {count_models} EC models");
+    let assets = world_asset_worker
+        .join()
+        .map_err(|_| "world asset loader panicked")??;
+    let WorldAssets {
+        scene,
+        cloud_surface,
+        water,
+        objects,
+        models,
+        grass,
+        trees,
+        environments,
+        scene_lights,
+    } = assets;
     eprintln!("Loading world terrain textures and masks...");
     #[cfg(windows)]
     windows_setup::loading_progress("Loading terrain materials and masks...".into());
-    let materials = material::Materials::load(&dir, &t, &names, w, h, grid_spacing)?;
-    let water_normals = water::load_normals(&element)?;
-    let water_simple_frames = water::load_simple_frames(&element)?;
-    let objects = objects::Objects::open(&element, ornaments)?;
-    let placements: Vec<_> = world_scene
-        .blocks
-        .iter()
-        .flat_map(|b| b.models.iter().cloned())
-        .collect();
-    let models = match world_models::Assets::open(&element, placements.clone()) {
-        Ok(models) => models,
-        Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
-    };
-    eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (ordinary animated submission enabled unless PW_DISABLE_WORLD_MODELS is set)", models.assets.len(), models.instances.len(), models.unloaded.len());
-    for failure in &models.failures {
-        eprintln!("EC model dependency: {failure}");
-    }
-    let grass = grass::Grass::load(&world_scene, &dir, &element)?;
-    #[cfg(windows)]
-    windows_setup::loading_progress(
-        "Preparing trees (first run may take several minutes)...".into(),
-    );
-    let tree_cache = if let Some(dir) = std::env::var_os("PW_TREE_CACHE") {
-        PathBuf::from(dir)
-    } else {
-        #[cfg(windows)]
-        {
-            windows_setup::prepare_trees_for_scene(
-                &element,
-                &scene_path,
-                world_scene.tree_types.len(),
-            )?
-        }
-        #[cfg(not(windows))]
-        {
-            PathBuf::from("tree-cache")
-        }
-    };
-    let trees = trees::Trees::open(&element, &world_scene, &tree_cache)?;
-    #[cfg(windows)]
-    if std::env::var_os("PW_TREE_CACHE").is_none() && trees.types.iter().any(|tree| tree.is_none())
-    {
-        return Err(format!("Some prepared tree types could not be loaded. Close Perfect World Explorer, remove this cache folder, and try again:\n{}",tree_cache.display()));
-    }
-    let environments = environment::Environments::load(&world_scene, &dir)?;
-    // Ordinary world-model receivers query these actual client records.
-    // Do not also add them to static baked BMDs or terrain: those surfaces
-    // use their separately traced baked-light paths.
-    let scene_lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
-        Ok(lights) => {
-            eprintln!(
-                "Loaded {} client scene lights (static query only)",
-                lights.lights.len()
-            );
-            lights
-        }
-        Err(e) => {
-            eprintln!("Scene lights unavailable: {e}");
-            scene_lights::SceneLights::default()
-        }
-    };
+    let materials = material_worker
+        .join()
+        .map_err(|_| "terrain material loader panicked")??;
+    let (water_normals, water_simple_frames) = water_texture_worker
+        .join()
+        .map_err(|_| "water texture loader panicked")??;
     Ok(Terrain {
         models,
         environments,
-        scene_lights: std::sync::Arc::new(scene_lights),
-        scene: std::sync::Arc::new(world_scene),
+        scene_lights,
+        scene,
         scenery_residency: scenery_visibility::RegionResidency::default(),
         terrain_material_window: None,
         map: map.clone(),

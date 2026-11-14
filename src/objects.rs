@@ -609,6 +609,13 @@ impl Objects {
     pub fn unavailable_model_count(&self) -> usize {
         self.unavailable_models.len()
     }
+    /// Paths of scenery models that failed archive lookup or model parsing,
+    /// sorted for stable diagnostics and UI summaries.
+    pub fn unavailable_models(&self) -> Vec<String> {
+        let mut names: Vec<_> = self.unavailable_models.iter().cloned().collect();
+        names.sort();
+        names
+    }
     pub fn texture(&self, path: &str) -> Option<&Texture> {
         self.cache.get(&normalize(path))
     }

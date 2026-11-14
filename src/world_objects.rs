@@ -180,6 +180,9 @@ pub struct DoneStats {
     /// Register rows recorded for references that resolved nowhere or were
     /// rejected by name (.sdr. shader registry, decode failures, missing).
     pub unresolved_rows: usize,
+    /// Distinct BMD assets that could not be opened or parsed. Placements using
+    /// these assets do not produce geometry and must remain visible in the UI.
+    pub unavailable_models: Vec<String>,
     /// Pages emitted by this preload.
     pub pages: usize,
     pub atlas_pages: usize,
@@ -523,6 +526,7 @@ fn run(
             residency: objects.residency(),
             resolver: objects.resolver_stats(),
             unresolved_rows: objects.unresolved().len(),
+            unavailable_models: objects.unavailable_models(),
             pages,
             atlas_pages,
             atlas_bytes,
