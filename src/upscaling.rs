@@ -288,17 +288,19 @@ impl SdkReport {
 pub enum UpscaleMethod {
     #[default]
     Off,
+    Fsr1,
     Dlss,
     Fsr,
     Xess,
 }
 
 impl UpscaleMethod {
-    pub const ALL: [Self; 4] = [Self::Off, Self::Dlss, Self::Fsr, Self::Xess];
+    pub const ALL: [Self; 5] = [Self::Off, Self::Fsr1, Self::Dlss, Self::Fsr, Self::Xess];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Off => "Off",
+            Self::Fsr1 => "FSR 1.1 (Spatial)",
             Self::Dlss => "DLSS Super Resolution",
             Self::Fsr => "FSR",
             Self::Xess => "XeSS",
@@ -308,6 +310,7 @@ impl UpscaleMethod {
     pub fn token(self) -> &'static str {
         match self {
             Self::Off => "off",
+            Self::Fsr1 => "fsr1",
             Self::Dlss => "dlss",
             Self::Fsr => "fsr",
             Self::Xess => "xess",
@@ -316,7 +319,8 @@ impl UpscaleMethod {
 
     pub fn parse(text: &str) -> Option<Self> {
         match text.trim().to_ascii_lowercase().as_str() {
-            "off" => Some(Self::Off),
+            "off" | "bilinear" => Some(Self::Off),
+            "fsr1" | "fsr_1" | "fsr1.1" => Some(Self::Fsr1),
             "dlss" => Some(Self::Dlss),
             "fsr" => Some(Self::Fsr),
             "xess" => Some(Self::Xess),
@@ -426,7 +430,9 @@ impl UpscaleQuality {
 pub fn quality_available(method: UpscaleMethod, quality: UpscaleQuality) -> bool {
     match method {
         UpscaleMethod::Off | UpscaleMethod::Dlss | UpscaleMethod::Fsr => true,
-        UpscaleMethod::Xess => quality != UpscaleQuality::UltraPerformance,
+        UpscaleMethod::Fsr1 | UpscaleMethod::Xess => {
+            quality != UpscaleQuality::UltraPerformance
+        }
     }
 }
 
@@ -453,13 +459,36 @@ pub fn internal_factor(method: UpscaleMethod, quality: UpscaleQuality) -> f64 {
             UpscaleQuality::Performance => 0.5,
             UpscaleQuality::UltraPerformance => 1.0 / 3.0,
         },
-        UpscaleMethod::Xess => match quality {
+        UpscaleMethod::Fsr1 | UpscaleMethod::Xess => match quality {
             UpscaleQuality::UltraQuality => 1.0 / 1.3,
             UpscaleQuality::Quality => 1.0 / 1.5,
             UpscaleQuality::Balanced => 1.0 / 1.7,
             UpscaleQuality::Performance => 0.5,
             UpscaleQuality::UltraPerformance => 0.5,
         },
+    }
+}
+
+/// Whether `input` -> `output` is within the 1-2x per-axis (1-4x area)
+/// spatial upscaling envelope where FSR 1 EASU + RCAS runs.
+pub fn fsr1_eligible(input: (u32, u32), output: (u32, u32)) -> bool {
+    input.0 > 0
+        && input.1 > 0
+        && output.0 > 0
+        && output.1 > 0
+        && (input.0 < output.0 || input.1 < output.1)
+        && input.0 <= output.0
+        && input.1 <= output.1
+        && output.0 <= input.0.saturating_mul(2)
+        && output.1 <= input.1.saturating_mul(2)
+}
+
+/// Clamp FSR 1 RCAS sharpness attenuation in stops to `[0.0, 2.0]` (0.2 default).
+pub fn sanitise_sharpness(stops: f32) -> f32 {
+    if stops.is_finite() {
+        stops.clamp(0.0, 2.0)
+    } else {
+        0.2
     }
 }
 
@@ -506,6 +535,9 @@ fn sdk_reason(sdk: &SdkReport, what: &str) -> String {
 pub fn support(method: UpscaleMethod, gpu: &GpuFacts, sdk: &SdkReport) -> Support {
     match method {
         UpscaleMethod::Off => Support::Available("always available"),
+        UpscaleMethod::Fsr1 => {
+            Support::Available("WGSL EASU + RCAS spatial upscaler (all GPUs and backends)")
+        }
         UpscaleMethod::Dlss => {
             if gpu.cpu_fallback {
                 Support::Disabled("Requires an NVIDIA RTX GPU (software adapter detected)".into())
@@ -630,6 +662,52 @@ pub fn support_framegen(
     }
 }
 
+/// Whether this build has a complete, executable GPU implementation for `method`.
+pub fn is_runtime_implemented(method: UpscaleMethod) -> bool {
+    matches!(method, UpscaleMethod::Off | UpscaleMethod::Fsr1)
+}
+
+/// Whether this build has a complete, executable GPU implementation for `method`.
+pub fn is_framegen_runtime_implemented(method: FrameGenMethod) -> bool {
+    matches!(method, FrameGenMethod::Off)
+}
+
+/// Runtime availability for the Graphics UI: requires both hardware/SDK
+/// availability and a genuine GPU implementation in this build.
+pub fn ui_support(method: UpscaleMethod, gpu: &GpuFacts, sdk: &SdkReport) -> Support {
+    let hw = support(method, gpu, sdk);
+    if !hw.is_available() {
+        return hw;
+    }
+    if !is_runtime_implemented(method) {
+        return Support::Disabled(format!(
+            "SDK detected, but wgpu 0.19 does not expose native ID3D12CommandList / motion-vector hooks for {}",
+            method.label()
+        ));
+    }
+    hw
+}
+
+/// Runtime frame-generation availability for the Graphics UI.
+pub fn ui_support_framegen(
+    method: FrameGenMethod,
+    upscale: UpscaleMethod,
+    gpu: &GpuFacts,
+    sdk: &SdkReport,
+) -> Support {
+    let hw = support_framegen(method, upscale, gpu, sdk);
+    if !hw.is_available() {
+        return hw;
+    }
+    if !is_framegen_runtime_implemented(method) {
+        return Support::Disabled(format!(
+            "SDK detected, but wgpu 0.19 does not expose native DXGI swapchain / motion-vector hooks for {}",
+            method.label()
+        ));
+    }
+    hw
+}
+
 /// Verdict on combining an upscaler with a frame generator. Based on the
 /// vendors' documentation as of the knowledge available when this was written;
 /// **not verified against the SDKs**, which cannot be downloaded here. Unverified
@@ -657,9 +735,11 @@ pub fn pairing(upscale: UpscaleMethod, frame_generation: FrameGenMethod) -> Pair
         FrameGenMethod::Fsr => PairingVerdict::Supported,
         FrameGenMethod::Xess => match upscale {
             UpscaleMethod::Off | UpscaleMethod::Xess => PairingVerdict::Supported,
-            UpscaleMethod::Dlss | UpscaleMethod::Fsr => PairingVerdict::Unsupported(
-                "Intel documents XeSS Frame Generation for use with XeSS only",
-            ),
+            UpscaleMethod::Fsr1 | UpscaleMethod::Dlss | UpscaleMethod::Fsr => {
+                PairingVerdict::Unsupported(
+                    "Intel documents XeSS Frame Generation for use with XeSS only",
+                )
+            }
         },
     }
 }
@@ -1308,7 +1388,7 @@ mod tests {
         let sdk = SdkReport::default();
         for gpu in [nvidia_rtx4070(), amd_rx9070(), intel_arc_a770(), software()] {
             for method in UpscaleMethod::ALL {
-                let expected = matches!(method, UpscaleMethod::Off);
+                let expected = matches!(method, UpscaleMethod::Off | UpscaleMethod::Fsr1);
                 assert_eq!(support(method, &gpu, &sdk).is_available(), expected);
             }
             for method in FrameGenMethod::ALL {
