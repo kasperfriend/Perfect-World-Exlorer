@@ -2682,6 +2682,7 @@ mod tests {
         assert_eq!(
             control.data,
             ControlData::Fractal {
+                kind: NoiseKind::Base,
                 buffer_length: 256,
                 amplitude: 1.,
                 wave_length: 1.,
@@ -2776,6 +2777,7 @@ mod tests {
         );
         match &element.affectors[4].data {
             ControlData::Fractal {
+                kind,
                 buffer_length,
                 amplitude,
                 wave_length,
@@ -2783,6 +2785,7 @@ mod tests {
                 octaves,
                 base_color,
             } => {
+                assert_eq!(*kind, NoiseKind::Scale);
                 assert_eq!(*buffer_length, 256);
                 assert_eq!(*amplitude, 0.5);
                 assert_eq!(*wave_length, 50.);
@@ -3239,6 +3242,7 @@ mod tests {
         assert_eq!(control.kind, 107);
         match &control.data {
             ControlData::Fractal {
+                kind,
                 buffer_length,
                 amplitude,
                 wave_length,
@@ -3246,6 +3250,7 @@ mod tests {
                 octaves,
                 base_color,
             } => {
+                assert_eq!(*kind, NoiseKind::Color);
                 assert_eq!(*buffer_length, 128);
                 assert_eq!(*amplitude, 3.);
                 assert_eq!(*wave_length, 2.);
