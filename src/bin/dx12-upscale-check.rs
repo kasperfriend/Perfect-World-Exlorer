@@ -12,7 +12,7 @@
 #[path = "../upscaling.rs"]
 mod upscaling;
 
-use upscaling::{FrameGenMethod, GpuFacts, UpscaleMethod, UpscaleQuality};
+use upscaling::{FrameGenMethod, GpuFacts, Upscaler, UpscaleMethod, UpscaleQuality};
 
 fn adapter_facts() -> Option<GpuFacts> {
     let instance = wgpu::Instance::default();
