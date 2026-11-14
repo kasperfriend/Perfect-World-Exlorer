@@ -78,7 +78,10 @@ fn main() {
     println!();
 
     println!("Pairing matrix (vendor documentation; NOT verified against the SDKs):");
-    println!("                       {:>22} {:>22} {:>22}", "DLSS FG", "FSR FG", "XeSS FG");
+    println!(
+        "                       {:>22} {:>22} {:>22}",
+        "DLSS FG", "FSR FG", "XeSS FG"
+    );
     for upscale in UpscaleMethod::ALL {
         let cells: Vec<&'static str> = [
             FrameGenMethod::Dlss,
@@ -86,12 +89,18 @@ fn main() {
             FrameGenMethod::Xess,
         ]
         .iter()
-            .map(|fg| match upscaling::pairing(upscale, *fg) {
-                PairingVerdict::Supported => "supported*",
-                PairingVerdict::Unsupported(_) => "not supported",
-            })
-            .collect();
-        println!("  {:>18} {:>22} {:>22} {:>22}", upscale.label(), cells[0], cells[1], cells[2]);
+        .map(|fg| match upscaling::pairing(upscale, *fg) {
+            PairingVerdict::Supported => "supported*",
+            PairingVerdict::Unsupported(_) => "not supported",
+        })
+        .collect();
+        println!(
+            "  {:>18} {:>22} {:>22} {:>22}",
+            upscale.label(),
+            cells[0],
+            cells[1],
+            cells[2]
+        );
     }
     println!("* Supported by the vendor's documentation, but only exposed when the SDK DLLs are");
     println!("  present and the hardware gate passes; this build never fakes an interpolation.");
@@ -124,7 +133,11 @@ fn main() {
             println!();
             println!("Frame generation support per pairing on this machine:");
             for upscale in UpscaleMethod::ALL {
-                for frame_gen in [FrameGenMethod::Dlss, FrameGenMethod::Fsr, FrameGenMethod::Xess] {
+                for frame_gen in [
+                    FrameGenMethod::Dlss,
+                    FrameGenMethod::Fsr,
+                    FrameGenMethod::Xess,
+                ] {
                     let support = upscaling::support_framegen(frame_gen, upscale, &gpu, &sdk);
                     println!(
                         "  {} + {} — {}",
@@ -156,9 +169,8 @@ fn main() {
     println!("Frame generation never presents UI frames twice: the UI layer is composed after");
     println!("the world upscale/interpolation pass and is excluded from interpolation.");
 
-    let any_sdk = sdk.dlss_frame_generation
-        || sdk.fsr_frame_generation
-        || sdk.xess_frame_generation;
+    let any_sdk =
+        sdk.dlss_frame_generation || sdk.fsr_frame_generation || sdk.xess_frame_generation;
     if args.require_sdk && !any_sdk {
         println!();
         println!(

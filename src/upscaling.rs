@@ -97,8 +97,20 @@ impl GpuFacts {
     pub fn supports_dlss_frame_generation(name: &str) -> bool {
         let n = name.to_lowercase();
         const NEEDLES: [&str; 14] = [
-            "rtx 40", "rtx 50", "rtx a4000", "rtx a4500", "rtx a5000", "rtx a5500", "rtx a6000",
-            "rtx 4000 ada", "rtx 4500 ada", "rtx 5000 ada", "rtx 5888", "l4", "l40", "l40s",
+            "rtx 40",
+            "rtx 50",
+            "rtx a4000",
+            "rtx a4500",
+            "rtx a5000",
+            "rtx a5500",
+            "rtx a6000",
+            "rtx 4000 ada",
+            "rtx 4500 ada",
+            "rtx 5000 ada",
+            "rtx 5888",
+            "l4",
+            "l40",
+            "l40s",
         ];
         NEEDLES.iter().any(|needle| n.contains(needle))
     }
@@ -483,9 +495,9 @@ fn sdk_reason(sdk: &SdkReport, what: &str) -> String {
             dir.display(),
             sdk.source.label()
         ),
-        (None, _) => format!(
-            "{what} not found; no SDK folder configured (set PW_UPSCALER_SDK_DIR)"
-        ),
+        (None, _) => {
+            format!("{what} not found; no SDK folder configured (set PW_UPSCALER_SDK_DIR)")
+        }
     }
 }
 
@@ -497,9 +509,15 @@ pub fn support(method: UpscaleMethod, gpu: &GpuFacts, sdk: &SdkReport) -> Suppor
             if gpu.cpu_fallback {
                 Support::Disabled("Requires an NVIDIA RTX GPU (software adapter detected)".into())
             } else if !gpu.is_nvidia() {
-                Support::Disabled(format!("Requires an NVIDIA RTX GPU (detected: {})", gpu.name))
+                Support::Disabled(format!(
+                    "Requires an NVIDIA RTX GPU (detected: {})",
+                    gpu.name
+                ))
             } else if !sdk.dlss {
-                Support::Disabled(sdk_reason(sdk, "DLSS Super Resolution SDK (nvngx_dlss.dll)"))
+                Support::Disabled(sdk_reason(
+                    sdk,
+                    "DLSS Super Resolution SDK (nvngx_dlss.dll)",
+                ))
             } else {
                 Support::Available("DLSS SDK found")
             }
@@ -558,7 +576,10 @@ pub fn support_framegen(
                     gpu.name
                 ))
             } else if !sdk.dlss_frame_generation {
-                Support::Disabled(sdk_reason(sdk, "DLSS Frame Generation SDK (nvngx_dlssg.dll)"))
+                Support::Disabled(sdk_reason(
+                    sdk,
+                    "DLSS Frame Generation SDK (nvngx_dlssg.dll)",
+                ))
             } else {
                 Support::Available("DLSS Frame Generation SDK found")
             }
@@ -592,7 +613,10 @@ pub fn support_framegen(
                     "XeSS Frame Generation is exposed with XeSS upscaling or Off only".into(),
                 )
             } else if !sdk.xess_frame_generation {
-                Support::Disabled(sdk_reason(sdk, "XeSS 2 Frame Generation SDK (libxess_fg.dll)"))
+                Support::Disabled(sdk_reason(
+                    sdk,
+                    "XeSS 2 Frame Generation SDK (libxess_fg.dll)",
+                ))
             } else {
                 Support::Available("XeSS 2 Frame Generation SDK found")
             }
@@ -876,11 +900,23 @@ mod tests {
     use super::*;
 
     fn nvidia_rtx4070() -> GpuFacts {
-        GpuFacts::from_parts(VENDOR_NVIDIA, 0x2784, "NVIDIA GeForce RTX 4070", "dx12", false)
+        GpuFacts::from_parts(
+            VENDOR_NVIDIA,
+            0x2784,
+            "NVIDIA GeForce RTX 4070",
+            "dx12",
+            false,
+        )
     }
 
     fn nvidia_gtx1080() -> GpuFacts {
-        GpuFacts::from_parts(VENDOR_NVIDIA, 0x1b80, "NVIDIA GeForce GTX 1080", "dx12", false)
+        GpuFacts::from_parts(
+            VENDOR_NVIDIA,
+            0x1b80,
+            "NVIDIA GeForce GTX 1080",
+            "dx12",
+            false,
+        )
     }
 
     fn amd_rx9070() -> GpuFacts {
@@ -888,7 +924,13 @@ mod tests {
     }
 
     fn intel_arc_a770() -> GpuFacts {
-        GpuFacts::from_parts(VENDOR_INTEL, 0x56a0, "Intel Arc A770 Graphics", "dx12", false)
+        GpuFacts::from_parts(
+            VENDOR_INTEL,
+            0x56a0,
+            "Intel Arc A770 Graphics",
+            "dx12",
+            false,
+        )
     }
 
     fn software() -> GpuFacts {
@@ -928,7 +970,10 @@ mod tests {
         }
         assert_eq!(UpscaleMethod::parse("bogus"), None);
         assert_eq!(FrameGenMethod::parse(""), None);
-        assert_eq!(UpscaleQuality::parse("ultra_quality"), Some(UpscaleQuality::UltraQuality));
+        assert_eq!(
+            UpscaleQuality::parse("ultra_quality"),
+            Some(UpscaleQuality::UltraQuality)
+        );
         assert_eq!(
             UpscaleQuality::parse("ULTRAPERFORMANCE"),
             Some(UpscaleQuality::UltraPerformance)
@@ -947,11 +992,15 @@ mod tests {
     #[test]
     fn dlss_requires_nvidia_and_sdk() {
         assert_eq!(
-            support(UpscaleMethod::Dlss, &amd_rx9070(), &full_sdk()).reason().unwrap(),
+            support(UpscaleMethod::Dlss, &amd_rx9070(), &full_sdk())
+                .reason()
+                .unwrap(),
             "Requires an NVIDIA RTX GPU (detected: AMD Radeon RX 9070 XT)"
         );
         assert_eq!(
-            support(UpscaleMethod::Dlss, &software(), &full_sdk()).reason().unwrap(),
+            support(UpscaleMethod::Dlss, &software(), &full_sdk())
+                .reason()
+                .unwrap(),
             "Requires an NVIDIA RTX GPU (software adapter detected)"
         );
         assert!(support(UpscaleMethod::Dlss, &nvidia_rtx4070(), &no_sdk())
@@ -995,8 +1044,12 @@ mod tests {
             &full_sdk(),
         );
         assert!(support.reason().unwrap().contains("40 series"));
-        let support =
-            support_framegen(FrameGenMethod::Dlss, UpscaleMethod::Dlss, &amd_rx9070(), &full_sdk());
+        let support = support_framegen(
+            FrameGenMethod::Dlss,
+            UpscaleMethod::Dlss,
+            &amd_rx9070(),
+            &full_sdk(),
+        );
         assert!(support.reason().unwrap().contains("NVIDIA"));
         let support = support_framegen(
             FrameGenMethod::Dlss,
@@ -1018,13 +1071,20 @@ mod tests {
     fn fsr_frame_generation_needs_fg_and_optical_flow() {
         let mut sdk = no_sdk();
         sdk.fsr_frame_generation = true;
-        assert!(support_framegen(FrameGenMethod::Fsr, UpscaleMethod::Fsr, &amd_rx9070(), &sdk)
-            .reason()
-            .unwrap()
-            .contains("ffx_opticalflow_x64.dll"));
+        assert!(
+            support_framegen(FrameGenMethod::Fsr, UpscaleMethod::Fsr, &amd_rx9070(), &sdk)
+                .reason()
+                .unwrap()
+                .contains("ffx_opticalflow_x64.dll")
+        );
         sdk.fsr_optical_flow = true;
-        assert!(support_framegen(FrameGenMethod::Fsr, UpscaleMethod::Dlss, &amd_rx9070(), &sdk)
-            .is_available());
+        assert!(support_framegen(
+            FrameGenMethod::Fsr,
+            UpscaleMethod::Dlss,
+            &amd_rx9070(),
+            &sdk
+        )
+        .is_available());
     }
 
     #[test]
@@ -1082,7 +1142,11 @@ mod tests {
         );
         assert_eq!(
             (u, q, f),
-            (UpscaleMethod::Dlss, UpscaleQuality::Performance, FrameGenMethod::Dlss)
+            (
+                UpscaleMethod::Dlss,
+                UpscaleQuality::Performance,
+                FrameGenMethod::Dlss
+            )
         );
     }
 
@@ -1095,28 +1159,54 @@ mod tests {
                 .collect();
             assert!(factors.iter().all(|factor| *factor > 0.0 && *factor <= 1.0));
             for pair in factors.windows(2) {
-                assert!(pair[0] >= pair[1], "factor must not grow with lower quality");
+                assert!(
+                    pair[0] >= pair[1],
+                    "factor must not grow with lower quality"
+                );
             }
         }
-        assert_eq!(internal_factor(UpscaleMethod::Off, UpscaleQuality::Quality), 1.0);
+        assert_eq!(
+            internal_factor(UpscaleMethod::Off, UpscaleQuality::Quality),
+            1.0
+        );
         // DLAA renders at native resolution.
-        assert_eq!(internal_factor(UpscaleMethod::Dlss, UpscaleQuality::UltraQuality), 1.0);
+        assert_eq!(
+            internal_factor(UpscaleMethod::Dlss, UpscaleQuality::UltraQuality),
+            1.0
+        );
     }
 
     #[test]
     fn provider_extent_scales_and_clamps() {
         assert_eq!(
-            provider_extent(UpscaleMethod::Fsr, UpscaleQuality::Performance, 1920, 1080, 8192),
+            provider_extent(
+                UpscaleMethod::Fsr,
+                UpscaleQuality::Performance,
+                1920,
+                1080,
+                8192
+            ),
             (960, 540)
         );
         assert_eq!(
-            provider_extent(UpscaleMethod::Dlss, UpscaleQuality::UltraQuality, 1920, 1080, 8192),
+            provider_extent(
+                UpscaleMethod::Dlss,
+                UpscaleQuality::UltraQuality,
+                1920,
+                1080,
+                8192
+            ),
             (1920, 1080)
         );
         let (w, h) = provider_extent(UpscaleMethod::Xess, UpscaleQuality::Balanced, 1, 1, 8192);
         assert_eq!((w, h), (1, 1));
-        let (w, h) =
-            provider_extent(UpscaleMethod::Fsr, UpscaleQuality::UltraPerformance, 4000, 3000, 4096);
+        let (w, h) = provider_extent(
+            UpscaleMethod::Fsr,
+            UpscaleQuality::UltraPerformance,
+            4000,
+            3000,
+            4096,
+        );
         assert!(w <= 4096 && h <= 4096);
     }
 
@@ -1232,10 +1322,7 @@ mod tests {
     #[test]
     fn providers_report_the_real_gate_instead_of_pretending() {
         let mut dlss = NvidiaDlss::new(nvidia_rtx4070(), no_sdk());
-        assert!(matches!(
-            dlss.query_support(),
-            Support::Disabled(_)
-        ));
+        assert!(matches!(dlss.query_support(), Support::Disabled(_)));
         assert!(matches!(dlss.init(), Err(UpscaleError::Disabled(_))));
         // Even with a "complete" SDK, this build does not claim an FFI.
         let mut dlss = NvidiaDlss::new(nvidia_rtx4070(), full_sdk());
@@ -1251,7 +1338,10 @@ mod tests {
             jitter: jitter_offset(0),
         };
         assert!(passthrough.resolve(&good).is_ok());
-        let bad = ResolveInputs { output: TextureHandle(0), ..good };
+        let bad = ResolveInputs {
+            output: TextureHandle(0),
+            ..good
+        };
         assert!(matches!(
             passthrough.resolve(&bad),
             Err(UpscaleError::BadConfiguration(_))
