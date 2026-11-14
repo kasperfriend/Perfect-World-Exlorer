@@ -7,7 +7,7 @@ scaling under a vendor name.
 | Technology | In this tree | What runs |
 | --- | --- | --- |
 | Resolution scale + bilinear | Yes; default | Existing 10–200% world render and bilinear present. UI, gamma and present encoding stay native. |
-| AMD FSR **1** (spatial) | Yes; opt-in | WGSL implementation of AMD's MIT-licensed EASU then RCAS, on the completed world image below 100% scale. At 100% or above, the existing bilinear pass runs instead. |
+| AMD FSR **1** (spatial) | Yes; opt-in | WGSL implementation of AMD's MIT-licensed EASU then RCAS, on the completed world image at 50–99% scale (up to 4x area). Outside that range, the existing bilinear pass runs instead. |
 | NVIDIA DLSS SR / DLAA, FG / MFG, RR and other Streamline plugins | **No** | Disabled; no NVIDIA plugin loaded or redistributed. RR also needs a ray-traced input this viewer does not produce. |
 | AMD FSR 2/3/4 SDK temporal/ML upscaling, FG, Anti-Lag and other SDK techniques | **No** | Disabled; not the same as this implementation of FSR 1. No AMD SDK components loaded or redistributed. |
 | Intel XeSS SR, FG, XeLL | **No** | Disabled; no Intel SDK component loaded or redistributed. |

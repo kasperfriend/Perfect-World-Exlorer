@@ -33,9 +33,10 @@ impl Upscaling {
     }
 }
 
-/// EASU is an upscaler, not a downsampler. If clamping to the device limit
-/// makes even one input axis larger than the output, retain the original
-/// bilinear path rather than feed EASU an unsupported configuration.
+/// EASU is specified for up to 4x area upscaling (at most 2x per axis),
+/// not downsampling. Outside this range, or if clamping to device limits
+/// makes even one input axis larger than the output, keep bilinear instead
+/// of feeding EASU an unsupported configuration.
 pub fn fsr1_eligible(input: (u32, u32), output: (u32, u32)) -> bool {
     input.0 > 0
         && input.1 > 0
@@ -43,6 +44,8 @@ pub fn fsr1_eligible(input: (u32, u32), output: (u32, u32)) -> bool {
         && output.1 > 0
         && input.0 <= output.0
         && input.1 <= output.1
+        && u64::from(input.0) * 2 >= u64::from(output.0)
+        && u64::from(input.1) * 2 >= u64::from(output.1)
         && input != output
 }
 
@@ -62,9 +65,11 @@ mod tests {
     }
 
     #[test]
-    fn easu_only_runs_when_both_axes_can_be_upscaled() {
+    fn easu_only_runs_within_its_supported_upscale_range() {
         assert!(fsr1_eligible((960, 540), (1920, 1080)));
         assert!(fsr1_eligible((1, 1), (2, 2)));
+        assert!(!fsr1_eligible((192, 108), (1920, 1080)));
+        assert!(!fsr1_eligible((999, 540), (2000, 1080)));
         assert!(!fsr1_eligible((1920, 1080), (1920, 1080)));
         assert!(!fsr1_eligible((3840, 2160), (1920, 1080)));
         assert!(!fsr1_eligible((2048, 540), (1920, 1080)));

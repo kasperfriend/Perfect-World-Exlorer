@@ -2,7 +2,7 @@
 //!
 //! The 3D world is drawn into an offscreen target whose size is the window
 //! extent multiplied by the chosen percentage (10–200%). The original
-//! bilinear present remains the default; at <100%, users can instead select
+//! bilinear present remains the default; at 50–99%, users can instead select
 //! the AMD FSR 1 spatial EASU + RCAS pass. These consume the same finished world
 //! image, before egui. The UI, display-gamma ramp and UNORM present-encode
 //! pass stay at native resolution, so menus, minimap and text remain sharp.
@@ -200,8 +200,8 @@ impl RenderScale {
     }
 
     /// Present the scaled world into the full-resolution composition view,
-    /// before the UI pass. FSR 1 runs only when every axis needs upscaling;
-    /// native scale and supersampling retain the original bilinear path.
+    /// before the UI pass. FSR 1 runs only within its 1–4x area range;
+    /// other scales retain the original bilinear path.
     pub fn blit(
         &mut self,
         device: &wgpu::Device,

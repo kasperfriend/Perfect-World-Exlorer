@@ -20,8 +20,8 @@ use winit::{
     window::{CursorGrabMode, Fullscreen, WindowBuilder},
 };
 const TILE: usize = 32;
-use crate::view_settings::{DetailSettings, MapStyle, MinimapShape, ViewSettings};
 use crate::upscaling::Upscaling;
+use crate::view_settings::{DetailSettings, MapStyle, MinimapShape, ViewSettings};
 
 const TEX: usize = 128;
 const ATLAS: usize = 4096;
@@ -293,8 +293,8 @@ fn graphics_technology_ui(ui: &mut egui::Ui, settings: &mut ViewSettings) {
             false,
             true,
         );
-        if settings.resolution_scale >= 100. {
-            ui.label(egui::RichText::new("FSR 1 only upscales below 100%; native/supersampled frames use the original bilinear path.").small().weak());
+        if settings.resolution_scale < 50. || settings.resolution_scale >= 100. {
+            ui.label(egui::RichText::new("FSR 1 supports 50%–99% resolution scale; outside this range the original bilinear path is used.").small().weak());
         }
     }
     ui.label(egui::RichText::new("FSR 1 is spatial EASU + RCAS, not the FSR temporal/ML SDK. Upscaling affects the world only; UI remains native.").small().weak());
