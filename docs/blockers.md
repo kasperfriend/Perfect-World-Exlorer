@@ -20,11 +20,20 @@ done.
   check`.
 - **Workaround:** code is written against the existing source with surgical
   edits; every touched `.rs` file is run through the tree-sitter syntax
-  check. Compile/test verification is deferred to the PR's CI (Linux job runs
-  `cargo check --bins` + unit tests; Windows job runs
-  `cargo build --release`). Local `cargo` results in the report are
-  **not verified**.
-- **Status:** open (workaround in place).
+  check. Compile/test verification is deferred to the PR's CI (Linux job:
+  rustfmt, `cargo check --bins`, unit tests; Windows job:
+  `cargo build --release`; both jobs also run GPU-check/audit steps that ran
+  green). Local `cargo` results in the report are **not verified**.
+- **CI result (2026-11-14):** run 43616119506 on HEAD `a75149f` — Linux pass
+  (2m45s), Windows pass (4m34s). CI surfaced and this branch fixed:
+  E0505 (`SdkReport` moved `dir` while the probe closure still borrowed it —
+  `src/upscaling.rs`), E0599 (missing `Upscaler` trait import in
+  `dx12-upscale-check.rs`), one stale test expectation for the shortened
+  XeSS-FG reason string, rustfmt deltas across five files, and a mistake of
+  mine while applying the rustfmt diff by hand (an add-only hunk was inserted
+  at offset 0 of `src/main.rs`, breaking the crate attribute line — repaired
+  in `a75149f` after CI caught it).
+- **Status:** open locally (no toolchain here), closed on CI for HEAD.
 
 ## B-2 — No GPU (Phases 1, 2, 3, 4, 6)
 
@@ -57,7 +66,7 @@ done.
   - `src/upscaling.rs` implements the full option state machine, pairing
     table, jitter sequence, per-provider internal resolutions and quality
     modes — all unit-tested logic, compiled into the viewer.
-  - `src/upscale_sdk.rs` probes a user-selected SDK directory
+  - `src/upscaling.rs::probe_sdk` probes a user-selected SDK directory
     (`PW_UPSCALER_SDK_DIR`, the `upscale_sdk_dir` settings key, or
     `<exe>\sdk\`) for the documented DLL names and reports what it finds;
     every provider stays disabled with a visible reason until a real SDK is
@@ -66,9 +75,10 @@ done.
     `xessContextCreate`, …) are **not** implemented, because the SDKs could
     not be obtained, compiled against or executed anywhere in this
     environment — writing them untested would be fabrication, not
-    integration. Selecting a provider whose SDK is present shows
-    "SDK integration not available in this build" and the viewer falls back
-    to the existing bilinear path.
+    integration. The Graphics tab says so verbatim: "Vendor SDK integration
+    is not included in this build; an active provider renders through the
+    fallback path at its recommended internal resolution (see README →
+    Graphics and docs/blockers.md)." Nothing temporal is faked.
   - Licenses/attribution are recorded in `THIRD_PARTY_NOTICES.md` from the
     vendor terms as published (with the requirement to re-check the license
     shipped inside the SDK you download).
@@ -114,29 +124,42 @@ and frame generation").
 
 ## B-6 — Open PR overlap (Phase 0.3)
 
-- **Step:** Phase 0.3 — read the open PR and avoid duplicating it.
-- **Finding:** **two** PRs are open. `#38` (Teleport List worlds; unrelated).
-  `#37` "Graphics: FSR1 upscaling and full vendor option lists (SDKs pending)"
-  adds `src/upscaling.rs`, `src/render_scale.rs` changes, an FSR1 EASU/RCAS
-  WGSL pass, Graphics-tab lists for DLSS/FSR1/FSR2/FSR3/FSR4.1/XeSS and an
-  independent frame-generation list, `THIRD_PARTY_NOTICES.md`, a README
-  section and `GRAPHICS_TECHNOLOGIES.md`. It is **not** merged; this branch is
-  cut from `main` and therefore does not contain any of it.
-- **Impact:** my implementation also creates `src/upscaling.rs` (provider
-  state machine, pairing table, jitter) plus `src/upscale_sdk.rs` (SDK
-  discovery) — #37 creates `src/upscaling.rs` too (option lists + worker
-  plumbing), so that file conflicts textually, as expected for two PRs
-  building the same feature from `main`. The other conflicting files:
-  `README.md` (license section + graphics bullet),
-  `tools/package-windows.ps1`, `src/gpu.rs` (Graphics tab),
-  `src/view_settings.rs` (settings keys), `THIRD_PARTY_NOTICES.md` (same
-  path, different scope). `.github/workflows/pr-checks.yml` is **not**
-  touched by this branch. Resolving the overlap means choosing one Graphics
-  tab implementation; both must be reconciled by the maintainer before
-  either ships. This branch deliberately does **not** contain #37's FSR1
-  EASU/RCAS pass (someone else's reviewable work) and does not pretend its
-  vendor SDKs either — this is the SDK-integration follow-up to #37, not a
-  duplicate of it.
+- **Step:** Phase 0.3 — read the open PRs and avoid duplicating them. **Both
+  were read on 2026-11-14** (files and diff, not just titles).
+- **Finding:**
+  - **#37** "Graphics: FSR1 upscaling and full vendor option lists (SDKs
+    pending)" adds `src/upscaling.rs`, `src/render_scale.rs` changes, an FSR1
+    EASU/RCAS WGSL pass, Graphics-tab lists for DLSS/FSR1/FSR2/FSR3/FSR4.1/XeSS
+    and an independent frame-generation list, `THIRD_PARTY_NOTICES.md`, a README
+    section and `GRAPHICS_TECHNOLOGIES.md`.
+  - **#38** "Add named world selection to Teleport List" touches
+    `Findings/Unsupported-client-paths.md`, `README.md`, `src/client_detect.rs`,
+    `src/environment.rs`, `src/gpu.rs`, `src/grass.rs`, `src/main.rs`,
+    `src/material.rs`, `src/modules/mod.rs`, `src/modules/populator/mod.rs`,
+    `src/music.rs`, `src/navigation.rs`, `src/terrain_gpu.rs`,
+    `src/terrain_store.rs`, `src/tree_source.rs`, `src/view_settings.rs`,
+    `src/water.rs`, `src/windows_setup.rs`, `src/world_catalog.rs` (new).
+- **Impact:** my implementation also creates `src/upscaling.rs` and edits the
+  same files as #37: `README.md`, `tools/package-windows.ps1`, `src/gpu.rs`,
+  `src/view_settings.rs`, `THIRD_PARTY_NOTICES.md` — expected textual
+  conflicts for two PRs building the same feature from `main`. Against
+  **#38**, the overlap is four files, all verified non-algorithmic:
+  `README.md` (distinct sections: #38 edits the intro/teleport text, this
+  branch edits the resolution-scale bullet, license section and layout),
+  `src/gpu.rs` (#38 edits the terrain-material load, adapter/window-title,
+  music/ambience and Teleport-List regions; this branch edits the instance
+  creation, `render_extent` and Graphics-tab line — adjacent hunks, no shared
+  changed lines), `src/main.rs` (#38 adds `mod world_catalog;` and terrain
+  plumbing; this branch only *moved* `mod upscaling;`), and
+  `src/view_settings.rs` (this branch edits the `encode()` format-string
+  line and inserts keys/tests; #38 appends `selected_world` to the same
+  format-string line and adds its own test — a textual conflict on that one
+  line plus the tests tail; resolution = keep both, order irrelevant).
+  `.github/workflows/pr-checks.yml` is **not** touched by this branch.
+  This branch deliberately does **not** contain #37's FSR1 EASU/RCAS pass
+  and does not pretend its vendor SDKs either — this is the SDK-integration
+  follow-up to #37, not a duplicate of it. Nothing from #38 or #37 was
+  copied into this branch.
 - **Status:** open (PRs must be rebased/merged in order by the maintainer).
 
 ## B-7 — Frame pacing / UI input rate (Phase 4.21)

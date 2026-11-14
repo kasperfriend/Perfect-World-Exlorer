@@ -3,7 +3,10 @@
 Status at the time of writing: **the renderer has not been compiled or run in
 this working environment.** There is no Rust toolchain (`cargo`/`rustc`), no
 GPU, and no Windows machine here. Everything in §1–§5 was verified by reading
-the source only. See `docs/blockers.md`.
+the source only. See `docs/blockers.md`. The PR's CI *is* the build/test
+authority for this branch: both jobs (Linux — rustfmt, `cargo check --bins`,
+unit tests, lavapipe GPU checks; Windows — `cargo build --release` + package
+audit) passed on HEAD `a75149f` (run 43616119506, 2026-11-14).
 
 Branch: `arena/4d8f7e24-perfect-world-explorer` (Arena pins one branch per
 session; the requested `feature/dx12-upscaling-framegen` branch was not
@@ -185,15 +188,20 @@ defaults (see the migration test in `view_settings.rs`).
    FSR / XeSS) and **Frame generation** (`Off` / DLSS Frame Generation /
    FSR Frame Generation / XeSS Frame Generation), independent selectors,
    disabled options with a visible reason, Resolution scale slider active only
-   when Upscaling is Off. New module `src/upscaling.rs` holds the state
-   machine, jitter sequence, per-provider recommended internal resolutions and
-   the pairing table; SDK discovery lives in `src/upscale_sdk.rs` probing a
-   user-chosen directory (Settings → `upscale_sdk_dir` or `PW_UPSCALER_SDK_DIR`
-   or `<exe>\sdk\`). No SDK binaries are shipped or committed.
+   when Upscaling is Off. The new module `src/upscaling.rs` holds the state
+   machine, jitter sequence, per-provider recommended internal resolutions,
+   the pairing table, and `probe_sdk`, which probes a user-chosen directory
+   (Settings → `upscale_sdk_dir` or `PW_UPSCALER_SDK_DIR` or `<exe>\sdk\`)
+   for the documented DLL names without loading any of them. No SDK binaries
+   are shipped or committed. When a provider is selected but its SDK cannot be
+   used, the world renders through the existing fallback path at the
+   provider's recommended internal resolution — the UI says so, and no
+   temporal accumulation is faked (see `docs/blockers.md` B-3).
 3. **Diagnostics**: `src/bin/dx12-upscale-check.rs`,
    `src/bin/dx12-framegen-check.rs` print the support/pairing matrix and the
    SDK probe results; they need no client and no GPU (they degrade to a
-   report with exit 0 when no adapter or SDK is present).
+   report with exit 0 when no adapter or SDK is present; `--require-sdk` /
+   `--require-gpu` make them fail in an SDK/GPU-equipped environment, exit 4/5).
 4. **Packaging/notices**: `THIRD_PARTY_NOTICES.md`, README license section,
    `tools/package-windows.ps1` (notices staged, optional MIT-SDK allowlist via
    `-SdkDirectory`, SHA256SUMS regenerated over the final list, NVIDIA proprietary
