@@ -8,7 +8,15 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDirectory,
 
-    [string]$ArchivePath = ''
+    [string]$ArchivePath = '',
+
+    # Optional: folder containing a *user-supplied* vendor SDK (never part of
+    # this repository). Only the MIT-licensed AMD FidelityFX/FSR and Intel
+    # XeSS runtime DLLs are staged, and only from this folder. NVIDIA
+    # DLSS/Streamline binaries are never staged by this script: users who are
+    # licensed to redistribute them must stage them manually and review the
+    # NVIDIA license themselves. See THIRD_PARTY_NOTICES.md.
+    [string]$SdkDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +30,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $modulesPath 'Walker/module.ini') -P
     throw "Walker module manifest not found under: $modulesPath"
 }
 
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$noticesPath = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
+if (-not (Test-Path -LiteralPath $noticesPath -PathType Leaf)) {
+    throw "THIRD_PARTY_NOTICES.md is missing from the repository root: $noticesPath"
+}
+
 $outputPath = [System.IO.Path]::GetFullPath($OutputDirectory)
 $packageRoot = Join-Path $outputPath 'Perfect World Explorer'
 if (Test-Path -LiteralPath $packageRoot) {
@@ -33,17 +47,73 @@ $shippedExecutable = Join-Path $packageRoot 'Perfect-World-Explorer.exe'
 Copy-Item -LiteralPath $executablePath -Destination $shippedExecutable
 $shippedModules = Join-Path $packageRoot 'Modules'
 Copy-Item -LiteralPath $modulesPath -Destination $shippedModules -Recurse
+Copy-Item -LiteralPath $noticesPath -Destination (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md')
 
 $walkerManifest = Join-Path $shippedModules 'Walker/module.ini'
 if (-not (Test-Path -LiteralPath $walkerManifest -PathType Leaf)) {
     throw "Staging did not produce Modules/Walker/module.ini in $packageRoot"
 }
+if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md') -PathType Leaf)) {
+    throw "Staging did not produce THIRD_PARTY_NOTICES.md in $packageRoot"
+}
+
+# Optional: stage the MIT-licensed vendor runtime DLLs from a user-supplied
+# SDK folder. Everything else in the folder is ignored; NVIDIA proprietary
+# DLLs are refused outright so they can never enter a package by accident.
+if (-not [string]::IsNullOrWhiteSpace($SdkDirectory)) {
+    $sdkRoot = (Resolve-Path -LiteralPath $SdkDirectory).Path
+    $mitAllowlist = @(
+        'ffx_fsr3upscaler_x64.dll',
+        'ffx_fsr2_api_x64.dll',
+        'ffx_fsr_api_x64.dll',
+        'ffx_framegeneration_x64.dll',
+        'ffx_opticalflow_x64.dll',
+        'libxess.dll',
+        'libxess_d3d12.dll',
+        'libxess_fg.dll'
+    )
+    $forbidden = @(Get-ChildItem -LiteralPath $sdkRoot -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '(?i)^(nvngx.*|sl\..*)\.dll$' })
+    if ($forbidden.Count -gt 0) {
+        $names = ($forbidden | ForEach-Object { $_.Name } | Sort-Object) -join ', '
+        throw "The SDK folder contains NVIDIA proprietary DLLs ($names). This script never stages them; remove them or review and stage them manually under the NVIDIA DLSS license (see THIRD_PARTY_NOTICES.md)."
+    }
+    $sdkTarget = Join-Path $packageRoot 'sdk'
+    New-Item -ItemType Directory -Force -Path $sdkTarget | Out-Null
+    $staged = 0
+    foreach ($name in $mitAllowlist) {
+        $source = Get-ChildItem -LiteralPath $sdkRoot -Recurse -File -Filter $name -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($null -ne $source) {
+            Copy-Item -LiteralPath $source.FullName -Destination (Join-Path $sdkTarget $name)
+            $staged++
+            Write-Host "Staged MIT-licensed SDK binary: sdk/$name"
+        }
+    }
+    if ($staged -eq 0) {
+        Remove-Item -LiteralPath $sdkTarget -Force
+        Write-Host "No allowlisted MIT SDK DLLs found under $sdkRoot; nothing staged."
+    }
+}
+
+# Hard stop regardless of staging mode: NVIDIA proprietary runtime DLLs must
+# never enter the package.
+$nvidiaBinaries = @(Get-ChildItem -LiteralPath $packageRoot -Recurse -File |
+    Where-Object { $_.Name -match '(?i)^(nvngx.*|sl\..*)\.dll$' })
+if ($nvidiaBinaries.Count -gt 0) {
+    $names = ($nvidiaBinaries | ForEach-Object { $_.FullName }) -join ', '
+    throw "Package contains NVIDIA proprietary DLLs: $names"
+}
 
 # Keep checksums with the portable folder. No development/survey executables
-# are inputs to this script, so only the viewer and installed module packages
-# can enter the distribution.
+# are inputs to this script, so only the viewer, the installed module packages,
+# the notices file and any explicitly staged MIT SDK DLLs can enter the
+# distribution. The checksum list is computed after every staging step above.
 $files = @((Get-Item -LiteralPath $shippedExecutable)) +
-    @((Get-ChildItem -LiteralPath $shippedModules -Recurse -File | Sort-Object FullName))
+    @((Get-ChildItem -LiteralPath $shippedModules -Recurse -File | Sort-Object FullName)) +
+    @((Get-Item -LiteralPath (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md'))) +
+    @((Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter *.dll |
+        Where-Object { $_.FullName -match '\\sdk\\' } | Sort-Object FullName))
 $checksumLines = @(
     foreach ($file in $files) {
         $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -72,12 +142,14 @@ if (-not [string]::IsNullOrWhiteSpace($ArchivePath)) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($archiveFullPath)
     try {
-        $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+        $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') } |
+            Where-Object { -not $_.EndsWith('/') })
         foreach ($required in @(
             'Perfect World Explorer/Perfect-World-Explorer.exe',
             'Perfect World Explorer/Modules/Walker/module.ini',
             'Perfect World Explorer/Modules/Populator/module.ini',
-            'Perfect World Explorer/SHA256SUMS.txt'
+            'Perfect World Explorer/SHA256SUMS.txt',
+            'Perfect World Explorer/THIRD_PARTY_NOTICES.md'
         )) {
             if ($entries -notcontains $required) {
                 throw "Release archive is missing required entry: $required"
@@ -85,6 +157,29 @@ if (-not [string]::IsNullOrWhiteSpace($ArchivePath)) {
         }
         if ($entries | Where-Object { $_ -match '(?i)bmd.*survey|survey.*bmd' }) {
             throw 'A BMD survey executable was unexpectedly included in the release archive.'
+        }
+        if ($entries | Where-Object { $_ -match '(?i)(nvngx.*|sl\..*)\.dll$' }) {
+            throw 'A NVIDIA proprietary DLL was unexpectedly included in the release archive.'
+        }
+        # The checksum manifest must name exactly the non-manifest files in the archive.
+        $manifestEntry = $archive.Entries | Where-Object { $_.FullName.Replace('\', '/') -eq 'Perfect World Explorer/SHA256SUMS.txt' } | Select-Object -First 1
+        $manifestReader = New-Object System.IO.StreamReader($manifestEntry.Open())
+        try {
+            $manifestLines = @($manifestReader.ReadToEnd() -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
+        }
+        finally {
+            $manifestReader.Dispose()
+        }
+        $manifestPaths = @($manifestLines | ForEach-Object { ($_ -split '\s+', 2)[1] })
+        foreach ($entry in $entries) {
+            $relative = $entry.Substring('Perfect World Explorer/'.Length)
+            if ($relative -eq 'SHA256SUMS.txt') { continue }
+            if ($manifestPaths -notcontains $relative) {
+                throw "Release archive entry is not covered by SHA256SUMS.txt: $relative"
+            }
+        }
+        if ($manifestPaths.Count + 1 -ne $entries.Count) {
+            throw "SHA256SUMS.txt lists $($manifestPaths.Count) files but the archive contains $($entries.Count) entries including the manifest itself."
         }
     }
     finally {

@@ -15,7 +15,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Client SpeedTree geometry through the client's 32-bit runtime, with sampled leaf motion and approximate LOD; locally streamed grass from client placements and meshes.
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
 - Searchable teleport destinations, original and rendered world maps, a minimap, zone notices, Windows zone music, experimental stereo zone ambience and experimental positional world effects.
-- Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample.
+- Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample. The same tab has the **Upscaling** (Off / DLSS Super Resolution / FSR / XeSS) and **Frame generation** selectors; resolution scale applies only when Upscaling is Off. See [Upscaling and frame generation](#upscaling-and-frame-generation-optional).
 - An optional **Modules** add-on list. **Walker** loads a clothed native player character and supports terrain walking, source-backed run/jump mechanics, and first- or third-person cameras. Its integrated **Character Designer** reads PW 1.4.2 v27 catalogs and native presets, edits body/face/equipment data, saves GBK presets, and rebuilds the same spawned Walker. The executable discovers installed module packages beside itself; modules own their state and do not change persisted core settings.
 
 Features are limited to formats and data encountered in one inspected build; other client variants may behave differently. This is not affiliated with or endorsed by the game or its publishers.
@@ -38,6 +38,7 @@ Features are limited to formats and data encountered in one inspected build; oth
        Populator/
          module.ini
      SHA256SUMS.txt
+     THIRD_PARTY_NOTICES.md
    ```
 2. Run `Perfect-World-Explorer.exe` and choose **Select Game Folder**. Select the extracted client root or its `element` directory.
 3. Click **Load World**. The first run prepares tree geometry using the client runtime; wait for loading to finish.
@@ -83,7 +84,7 @@ cargo test --bin perfect-world-explorer
 cargo check --bins
 ```
 
-Cargo does not copy module packages into `target`. For a source-tree run, either copy `Modules` beside the built executable or set `PW_MODULES_DIR` to the repository's `Modules` directory. The environment override is also useful for portable or test installations. Windows PR artifacts and manual release ZIPs are staged by `tools/package-windows.ps1`, which verifies the executable/module layout and excludes development survey tools.
+Cargo does not copy module packages into `target`. For a source-tree run, either copy `Modules` beside the built executable or set `PW_MODULES_DIR` to the repository's `Modules` directory. The environment override is also useful for portable or test installations. Windows PR artifacts and manual release ZIPs are staged by `tools/package-windows.ps1`, which verifies the executable/module layout, stages `THIRD_PARTY_NOTICES.md`, excludes development survey tools and NVIDIA proprietary DLLs, and can additionally stage the MIT-licensed AMD/Intel SDK DLLs from your own download via `-SdkDirectory`. It verifies the executable/module layout and excludes development survey tools.
 
 Dependency-free Phase 1 core checks can also be run with `tools/check-phase1-core.sh` (requires `rustc`; optionally set `RUSTC`). This checks CPU references only, not the application or shaders. For the production whole-frame gamma pass, run `cargo run --bin display-gamma-gpu-check` on a machine with a working GPU adapter. Client gamma is fullscreen-only and applies after world and UI composition; windowed mode does not apply the display ramp.
 
@@ -129,9 +130,28 @@ Findings/                research, evidence, assessment and roadmap
 LICENSE                  project license
 ```
 
+## Upscaling and frame generation (optional)
+
+Settings → Graphics has two independent selectors:
+
+- **Upscaling** — Off, DLSS Super Resolution, FSR, XeSS.
+- **Frame generation** — Off, DLSS Frame Generation, FSR Frame Generation, XeSS Frame Generation.
+
+Options the hardware or the available SDK does not support are shown disabled with the reason (for example "Requires an NVIDIA RTX GPU" or "FSR SDK not found"). Frame generation is chosen independently of the upscaler. The pairings the vendor SDKs document are exposed (DLSS Frame Generation and FSR Frame Generation are documented as usable with any temporal upscaler; XeSS Frame Generation is only documented with XeSS upscaling or none). Pairings the SDKs do not document are not offered; see `docs/dx12-port-notes.md` and the pull request report for the unsupported list.
+
+**No vendor SDK is included with the viewer.** To enable a provider, obtain the SDK from the vendor (licenses, attribution and download links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and place the DLLs in one of these locations, then restart the viewer:
+
+- `sdk\` next to `Perfect-World-Explorer.exe`,
+- the folder named by the `PW_UPSCALER_SDK_DIR` environment variable,
+- the folder set in `viewer-settings.txt` as `upscale_sdk_dir=<path>` (edit the file while the viewer is closed).
+
+`dx12-upscale-check` and `dx12-framegen-check` (built from `src/bin/`) print what your hardware and SDK folder allow, and why every unavailable option is unavailable; `--sdk-dir <path>` probes a specific folder.
+
+**Resolution scale applies only when Upscaling is Off.** With an upscaler active, the world renders at the provider's recommended internal resolution for the selected quality mode and is presented at window resolution; the UI always stays at native resolution. Until the vendor integration is exercised on a real Windows GPU, an active provider renders through the same bilinear path the resolution-scale slider uses — no temporal accumulation is faked. Frame generation does not synthesise frames in this build; the selector, pairing rules, SDK detection and settings plumbing are wired and unit-tested, and the UI is composed after the world pass so it can never be interpolated or double-presented. The viewer starts and renders normally with no SDK present. See [docs/blockers.md](docs/blockers.md) for the exact gaps and what is needed to close them.
+
 ## License, attribution and publishing
 
-The project is marked **GPL-2.0-or-later**; see [LICENSE](LICENSE). BMD and terrain format research was informed by the GPL-2.0-or-later [GameForge static importer](https://github.com/shaddowdaniel/GameForge-3D-Studio-/blob/0a7fae8fcba0df7b0daa988db8696a0feaf49f7b/source/blender/io/angelica/formats/angelica_static.cc) and [terrain importer](https://github.com/shaddowdaniel/GameForge-3D-Studio-/blob/0a7fae8fcba0df7b0daa988db8696a0feaf49f7b/source/blender/io/angelica/formats/angelica_terrain.cc), copyright 2026 GameForge 3D Studio Authors. Leaf-card methods were informed by the GPL-2.0 [mt2-world-baker](https://github.com/moleh1307/mt2-world-baker); ECWLD layout research used the [RaGEZONE discussion](https://forum.ragezone.com/threads/map-editor.1252114/). Dependency licenses also apply.
+The project is marked **GPL-2.0-or-later**; see [LICENSE](LICENSE). Optional graphics SDKs (NVIDIA DLSS/Streamline, AMD FidelityFX FSR, Intel XeSS) are covered separately by [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which records each SDK's license, redistribution terms and required attribution, and explains which binaries you must supply yourself. No SDK binary is distributed with this project. BMD and terrain format research was informed by the GPL-2.0-or-later [GameForge static importer](https://github.com/shaddowdaniel/GameForge-3D-Studio-/blob/0a7fae8fcba0df7b0daa988db8696a0feaf49f7b/source/blender/io/angelica/formats/angelica_static.cc) and [terrain importer](https://github.com/shaddowdaniel/GameForge-3D-Studio-/blob/0a7fae8fcba0df7b0daa988db8696a0feaf49f7b/source/blender/io/angelica/formats/angelica_terrain.cc), copyright 2026 GameForge 3D Studio Authors. Leaf-card methods were informed by the GPL-2.0 [mt2-world-baker](https://github.com/moleh1307/mt2-world-baker); ECWLD layout research used the [RaGEZONE discussion](https://forum.ragezone.com/threads/map-editor.1252114/). Dependency licenses also apply.
 
 **Before public distribution**, verify that you have the rights to publish the launcher artwork and all included code/binaries, and review third-party dependencies and applicable game terms. The provenance and redistribution rights of `tools/launcher-art.jpg` have not been established in this package; replace it with artwork you have rights to if necessary. Do not redistribute the proprietary game client, its DLLs, archives, extracted assets, or derived caches. The `.gitignore` reduces accidental commits but is not a substitute for reviewing staged files.
 

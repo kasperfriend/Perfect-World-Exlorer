@@ -23,3 +23,6 @@ google_drive/
 
 # Lossless runtime terrain backing store (rebuildable client data)
 /cache/
+
+# User-supplied vendor SDK folder (never committed; see THIRD_PARTY_NOTICES.md)
+/sdk/
