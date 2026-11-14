@@ -1,7 +1,7 @@
 //! Automatic first-run setup for the 64-bit Windows viewer.
 //! The embedded PE32 bridge is required because the client's SpeedTree DLL is 32-bit.
 use std::{
-    ffi::{c_void, OsString},
+    ffi::{c_void, OsStr, OsString},
     fs::{self, OpenOptions},
     hash::{Hash, Hasher},
     io::Write,
@@ -110,16 +110,52 @@ pub fn choose_client(owner: Hwnd, initial: Option<&Path>) -> Result<Option<PathB
         result
     }
 }
-fn cache_key(element: &Path) -> Result<u64, String> {
+fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    let exact = dir.join(name);
+    if exact.is_file() {
+        return Some(exact);
+    }
+    fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name))
+        .map(|e| e.path())
+}
+
+/// The first readable scene file in the client. A client without the main
+/// world can still prepare its tree cache from an instance map.
+fn default_scene_file(element: &Path) -> PathBuf {
+    let maps = element.join("maps");
+    let mut dirs = fs::read_dir(maps)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.path())
+        .collect::<Vec<_>>();
+    dirs.sort();
+    for dir in dirs {
+        let id = dir.file_name().and_then(OsStr::to_str).unwrap_or("world");
+        if let Some(path) =
+            find_file(&dir, &format!("{id}.ecwld")).or_else(|| find_file(&dir, "world.ecwld"))
+        {
+            return path;
+        }
+    }
+    element.join("maps/world/world.ecwld")
+}
+
+fn cache_key(element: &Path, scene_path: &Path) -> Result<u64, String> {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     "PWTREE08-per-lod-leaf-corners-native-alpha-refs-v1".hash(&mut h);
     fs::canonicalize(element)
         .unwrap_or_else(|_| element.to_path_buf())
         .hash(&mut h);
-    for path in [
-        element.join("trees.pck"),
-        element.join("maps/world/world.ecwld"),
-    ] {
+    fs::canonicalize(scene_path)
+        .unwrap_or_else(|_| scene_path.to_path_buf())
+        .hash(&mut h);
+    for path in [element.join("trees.pck"), scene_path.to_path_buf()] {
         let m = fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         m.len().hash(&mut h);
         if let Ok(time) = m.modified() {
@@ -136,13 +172,20 @@ fn ready(dir: &Path) -> bool {
     dir.join("ready").is_file() && (0..59).all(|i| dir.join(format!("tree-{i:03}.pwt")).is_file())
 }
 pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
+    prepare_trees_for_scene(element, &default_scene_file(element))
+}
+
+/// Prepare trees from the selected map's ECWLD. Different maps reference
+/// different tree types, so the cache key and extraction source must follow the
+/// loaded world rather than always using `maps/world`.
+pub fn prepare_trees_for_scene(element: &Path, scene_path: &Path) -> Result<PathBuf, String> {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .ok_or("LOCALAPPDATA is not set")?
         .join("PerfectWorldViewer")
         .join("tree-cache");
     fs::create_dir_all(&base).map_err(|e| format!("Cannot create tree cache: {e}"))?;
-    let key = cache_key(element)?;
+    let key = cache_key(element, scene_path)?;
     let final_dir = base.join(format!("pwt08-{key:016x}"));
     if ready(&final_dir) {
         eprintln!("Using prepared SpeedTree cache {}", final_dir.display());
@@ -171,7 +214,7 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
     let result = (|| -> Result<(), String> {
         let data = work.join("data");
         eprintln!("First launch: extracting trees and preparing them with the SpeedTreeRT.dll from your client. This may take a few minutes.");
-        crate::tree_source::extract(element, &data)?;
+        crate::tree_source::extract_for_scene(element, scene_path, &data)?;
         let helper = work.join("speedtree-bridge.exe");
         let mut f = OpenOptions::new()
             .write(true)

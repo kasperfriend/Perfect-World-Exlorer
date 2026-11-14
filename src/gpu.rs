@@ -1199,8 +1199,10 @@ fn build(
         let materials = if t.terrain_material_window.is_none() {
             t.materials.take_window(mask_window)
         } else {
-            let dir = t.element.join("maps/world");
-            let trn = std::fs::read(dir.join("world.trn2")).map_err(|e| e.to_string())?;
+            let dir = t.map.dir.clone();
+            let terrain_path = t.map.file("trn2");
+            let trn = std::fs::read(&terrain_path)
+                .map_err(|e| format!("{}: {e}", terrain_path.display()))?;
             crate::material::Materials::load_window(
                 &dir,
                 &trn,
@@ -3878,6 +3880,8 @@ pub fn run(
     mut t: Terrain,
     #[cfg(windows)] loading: Option<crate::windows_setup::LoadingWindow>,
 ) -> Result<(), String> {
+    let current_map = t.map.clone();
+    let client_root = crate::world_catalog::client_root(&t.map.element);
     #[cfg(windows)]
     crate::windows_setup::loading_progress("Preparing GPU world and textures...".into());
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
@@ -3899,7 +3903,8 @@ pub fn run(
     let (adapter, device, queue) = pollster::block_on(adapter(&instance, Some(&surface)))?;
     let software_adapter = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
     window.set_title(&format!(
-        "Perfect World Explorer — {} — click mouse to look, Esc menu, WASD fly",
+        "Perfect World Explorer — {} ({}) — click mouse to look, Esc menu, WASD fly",
+        t.map.label(),
         adapter.get_info().name
     ));
     let caps = surface.get_capabilities(&adapter);
@@ -3989,8 +3994,9 @@ pub fn run(
         } else {
             None
         };
-    let mut music = crate::music::MusicPlayer::new(&t.element);
-    let mut ambience = crate::music::AmbiencePlayer::new(&t.element);
+    let precinct_path = current_map.dir.join("precinct.clt");
+    let mut music = crate::music::MusicPlayer::new_for_map(&t.element, &precinct_path);
+    let mut ambience = crate::music::AmbiencePlayer::new_for_map(&t.element, &precinct_path);
     let mut world_audio = crate::world_audio::WorldAudio::new(&t.element, &t.scene);
     #[cfg(windows)]
     drop(loading);
@@ -4017,6 +4023,7 @@ pub fn run(
     let whole_ornaments = t.objects.ornaments.clone();
     renderer.modules = crate::modules::Modules::new(
         whole_element.clone(),
+        current_map.dir.clone(),
         map_space.clone(),
         water_areas.clone(),
         &t.scene,
@@ -4036,8 +4043,9 @@ pub fn run(
         let heights = map_space.clone();
         models.set_terrain(move |x: f32, z: f32| Some(heights.ground(x, z)));
     }
+    let destinations_path = current_map.dir.join("world_targets.txt");
     let destinations =
-        crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));
+        crate::navigation::destinations_for_world(&destinations_path, &current_map.instance_ids);
     let mut world_rx: Option<std::sync::mpsc::Receiver<crate::world_objects::Message>> = None;
     let mut world_cancel: Option<Arc<std::sync::atomic::AtomicBool>> = None;
     let mut world_enabled = false;
@@ -4107,11 +4115,27 @@ pub fn run(
         &map_view,
         wgpu::FilterMode::Linear,
     );
+    // The full overhead render must follow the loaded map's own aspect. The
+    // main world is 8192x11264 (1024x1408 here); instance maps are often square.
+    let max_map_side = 1408f64.min(renderer.device.limits().max_texture_dimension_2d as f64);
+    let terrain_aspect = (t.width as f64 / t.height.max(1) as f64).clamp(0.01, 100.);
+    let (full_map_width, full_map_height) = if terrain_aspect >= 1. {
+        (
+            max_map_side as u32,
+            (max_map_side / terrain_aspect).round().max(1.) as u32,
+        )
+    } else {
+        (
+            (max_map_side * terrain_aspect).round().max(1.) as u32,
+            max_map_side as u32,
+        )
+    };
+    let map_aspect = full_map_width as f32 / full_map_height.max(1) as f32;
     let full_map_texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("full-world overhead map"),
         size: wgpu::Extent3d {
-            width: 1024,
-            height: 1408,
+            width: full_map_width,
+            height: full_map_height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -4122,7 +4146,7 @@ pub fn run(
         view_formats: &[],
     });
     let full_map_view = full_map_texture.create_view(&Default::default());
-    let full_depth_tex = depth(&renderer.device, 1024, 1408);
+    let full_depth_tex = depth(&renderer.device, full_map_width, full_map_height);
     let full_map_depth = full_depth_tex.create_view(&Default::default());
     let full_map_id = egui_renderer.register_native_texture(
         &renderer.device,
@@ -4148,7 +4172,19 @@ pub fn run(
     let mut map_zoom = 1.0f32;
     let mut map_refresh = Instant::now() - std::time::Duration::from_secs(10);
     let mut teleport_query = String::new();
-    let ui_zones = crate::music::Zones::open(&whole_element.join("maps/world/precinct.clt")).ok();
+    // Discover every readable map in the same client install once. Names come
+    // from the client's own `configs.pck` instance table when available.
+    let mut world_catalog = crate::world_catalog::discover(&whole_element);
+    if !world_catalog
+        .maps
+        .iter()
+        .any(|map| map.id.eq_ignore_ascii_case(&current_map.id))
+    {
+        world_catalog.maps.insert(0, current_map.clone());
+    }
+    let mut world_choice = current_map.id.clone();
+    let mut world_change_error = String::new();
+    let ui_zones = crate::music::Zones::open(&current_map.dir.join("precinct.clt")).ok();
     let mut last_zone: Option<usize> = None;
     let mut zone_initialized = false;
     let mut zone_check = Instant::now() - std::time::Duration::from_secs(1);
@@ -4475,14 +4511,14 @@ pub fn run(
                     }
                     if menu_page==MenuPage::WorldMap && settings.world_map_style==MapStyle::Original && !original_map_requested {
                         original_map_requested=true;
-                        let root=whole_element.clone();let (tx,rx)=std::sync::mpsc::channel();
-                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_map(&root));});
+                        let root=whole_element.clone();let zone=current_map.id.clone();let (tx,rx)=std::sync::mpsc::channel();
+                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_map_for_map(&root,&zone));});
                         original_map_rx=Some(rx);
                     }
                     if settings.minimap_style==MapStyle::Original && !original_minimap_requested {
                         original_minimap_requested=true;
-                        let root=whole_element.clone();let (tx,rx)=std::sync::mpsc::channel();
-                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_minimap(&root));});
+                        let root=whole_element.clone();let zone=current_map.id.clone();let (tx,rx)=std::sync::mpsc::channel();
+                        std::thread::spawn(move || {let _=tx.send(crate::navigation::original_minimap_for_map(&root,&zone));});
                         original_minimap_rx=Some(rx);
                     }
                     if let Some(rx)=&original_map_rx {if let Ok(result)=rx.try_recv(){
@@ -4583,9 +4619,67 @@ pub fn run(
                                     }
                                     if menu_page==MenuPage::Teleports {
                                         egui::Window::new("TELEPORT LIST  |  ESC to go back").default_pos(egui::pos2(16.,16.)).default_size(egui::vec2(540.,570.)).min_size(egui::vec2(340.,280.)).max_height(config.height as f32/window.scale_factor() as f32-35.).collapsible(false).resizable(true).show(ctx,|ui|{
-                                            ui.heading("Explore destinations");ui.label(egui::RichText::new("Locations and coordinates from the client’s world_targets.txt").small().weak());ui.add_space(6.);
+                                            ui.heading("Explore destinations");
+                                            ui.label(egui::RichText::new("World selection and locations").small().weak());
+                                            ui.add_space(4.);
+                                            ui.label("Current world");
+                                            ui.horizontal(|ui| {
+                                                let response = egui::ComboBox::from_id_source("teleport_world_selector")
+                                                    .width(ui.available_width().min(350.))
+                                                    .selected_text(current_map.label())
+                                                    .show_ui(ui, |ui| {
+                                                        egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
+                                                            for map in &world_catalog.maps {
+                                                                ui.selectable_value(&mut world_choice, map.id.clone(), map.label())
+                                                                    .on_hover_text(map.tooltip());
+                                                            }
+                                                        });
+                                                    }).response;
+                                                if !world_change_error.is_empty() { response.on_hover_text(world_change_error.as_str()); }
+                                            });
+                                            if let Some(warning) = &world_catalog.warning {
+                                                ui.label(egui::RichText::new(warning.as_str()).small().color(egui::Color32::YELLOW));
+                                            }
+                                            ui.horizontal(|ui| {
+                                                let chosen = world_catalog.maps.iter().find(|map| map.id == world_choice);
+                                                let can_change = chosen.is_some_and(|map| map.id != current_map.id);
+                                                if ui.add_enabled(can_change, egui::Button::new("Change world")).on_hover_text("Reload the explorer with the selected client map; view settings are saved first.").clicked() {
+                                                    let map_id = world_choice.clone();
+                                                    let display = chosen.map(|map| map.label()).unwrap_or(map_id.clone());
+                                                    let executable = match std::env::current_exe() {
+                                                        Ok(path) => path,
+                                                        Err(e) => { world_change_error = format!("Cannot restart the explorer: {e}"); return; }
+                                                    };
+                                                    if !crate::world_catalog::valid_world_id(&map_id) {
+                                                        world_change_error = format!("Unsafe world folder name: {map_id}");
+                                                        return;
+                                                    }
+                                                    settings.selected_world = map_id.clone();
+                                                    if let Err(e) = settings.save() { eprintln!("Settings save before world change: {e}"); }
+                                                    let result = std::process::Command::new(executable)
+                                                        .arg(&client_root)
+                                                        .arg("--world")
+                                                        .arg(&settings.selected_world)
+                                                        .spawn();
+                                                    match result {
+                                                        Ok(child) => {
+                                                            eprintln!("Opening world {display} in a new explorer process ({})", child.id());
+                                                            target.exit();
+                                                            return;
+                                                        }
+                                                        Err(e) => world_change_error = format!("Could not open {display}: {e}"),
+                                                    }
+                                                }
+                                                if let Some(map) = chosen {
+                                                    ui.label(egui::RichText::new(format!("{} readable world{}", world_catalog.maps.len(), if world_catalog.maps.len() == 1 { "" } else { "s" })).small().weak());
+                                                    let _ = map;
+                                                }
+                                            });
+                                            if !world_change_error.is_empty() { ui.colored_label(egui::Color32::LIGHT_RED, world_change_error.as_str()); }
+                                            ui.separator();
                                             ui.add(egui::TextEdit::singleline(&mut teleport_query).hint_text("Search locations or ID...").desired_width(f32::INFINITY));
                                             match &destinations {Ok(list)=>{
+                                                if list.is_empty() { ui.label(egui::RichText::new(format!("{} has no world_targets.txt destinations for this viewer.", current_map.id)).small().weak()); }
                                                 let q=teleport_query.trim().to_lowercase();let filtered=list.iter().filter(|p|q.is_empty() || p.name.to_lowercase().contains(&q) || p.id.to_string().contains(&q)).collect::<Vec<_>>();
                                                 ui.label(format!("{} of {} destinations",filtered.len(),list.len()));ui.separator();
                                                 egui::ScrollArea::vertical().max_height((ui.available_height()-42.).max(100.)).show(ui,|ui|{for place in filtered {
@@ -4601,7 +4695,7 @@ pub fn run(
                                         egui::Window::new("WORLD MAP  |  M or ESC to close").default_pos(egui::pos2(16.,16.)).default_size(egui::vec2((screen_w-32.).min(760.),(screen_h-32.).min(900.))).min_size(egui::vec2(330.,300.)).max_height(screen_h-35.).collapsible(false).resizable(true).show(ctx,|ui|{
                                             ui.label(egui::RichText::new("North: up  |  East: right  |  Mouse wheel: zoom").small().strong());
                                             if settings.world_map_style==MapStyle::Realistic && !renderer.world_done {ui.horizontal_wrapped(|ui|{ui.label(egui::RichText::new("Distant scenery: ").small().weak());if settings.detail.terrain_cutoff {ui.label("Scenery follows the resident window");}else if settings.whole_world {ui.label(egui::RichText::new(&world_status).small().weak());}else if ui.button("Load whole world scenery").clicked(){settings.whole_world=true;}});}
-                                            let remaining=(ui.available_height()-78.).max(100.);let visible_width=ui.available_width();let base_width=visible_width.min(remaining*8./11.).max(120.);let image_size=egui::vec2(base_width*map_zoom,base_width*map_zoom*11./8.);
+                                            let remaining=(ui.available_height()-78.).max(100.);let visible_width=ui.available_width();let base_width=visible_width.min(remaining*map_aspect).max(120.);let image_size=egui::vec2(base_width*map_zoom,base_width*map_zoom/map_aspect);
                                             let texture=if settings.world_map_style==MapStyle::Original {original_map_id.as_ref().map(|t|t.id())} else {Some(full_map_id)};
                                             let mut zoom_anchor=None;
                                             let scroll=egui::ScrollArea::both().max_height(remaining).auto_shrink([false,false]).show(ui,|ui|{

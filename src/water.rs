@@ -2,6 +2,24 @@
 //! Record layout derived from the supplied elementclient.exe at 0x780d30 and 0x781760.
 use crate::scene::Scene;
 use std::{collections::HashMap, fs, path::Path};
+
+/// Instance maps name their EC-BSD after the map folder (`a01.ecbsd`), while
+/// the main world and stand-alone fixtures keep `world.ecbsd`. Modules included
+/// by diagnostic binaries use this local resolver so they do not depend on the
+/// viewer's world catalog module.
+fn ecbsd_path(dir: &Path) -> std::path::PathBuf {
+    let stem = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("world");
+    let named = dir.join(format!("{stem}.ecbsd"));
+    if named.is_file() {
+        named
+    } else {
+        dir.join("world.ecbsd")
+    }
+}
+
 /// Authored shoreline control points and per-vertex day/night ARGB colors.
 /// Version 0x10003000 serialization is read by client routine 0x782680.
 #[derive(Debug, Clone)]
@@ -236,7 +254,7 @@ fn parse_shore_waves(b: &[u8], offset: usize) -> Result<Vec<ShoreWave>, String> 
     Ok(shore_waves)
 }
 pub fn load(scene: &Scene, dir: &Path) -> Result<Vec<WaterArea>, String> {
-    let b = fs::read(dir.join("world.ecbsd")).map_err(|e| e.to_string())?;
+    let b = fs::read(ecbsd_path(dir)).map_err(|e| e.to_string())?;
     if u(&b, 0)? != 0x42584f4d || u(&b, 4)? != 0x42534446 || u(&b, 8)? != 12 {
         return Err("unsupported EC-BSD header".into());
     }

@@ -1278,7 +1278,7 @@ fn load_lightmaps(
     let mut availability = vec![crate::terrain_lightmaps::Availability::Unbound; m.areas.len()];
     let mut unbound = Vec::new();
     for (si, name) in t.subterrain_names.iter().enumerate() {
-        let base = t.element.join("maps/world");
+        let base = t.map.dir.clone();
         let pair = match crate::terrain_lightmaps::Pair::read_optional(
             &base.join(format!("{name}.t2lm")),
             &base.join(format!("{name}.t2lm1")),
@@ -1292,7 +1292,7 @@ fn load_lightmaps(
             }
         };
         for (which, ext) in ["t2lm", "t2lm1"].iter().enumerate() {
-            let path = t.element.join("maps/world").join(format!("{name}.{ext}"));
+            let path = base.join(format!("{name}.{ext}"));
             let tiles = crate::terrain_lightmaps::Tiles::parse(pair.bytes(which == 1))
                 .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
             for j in 0..crate::terrain_lightmaps::TILES {

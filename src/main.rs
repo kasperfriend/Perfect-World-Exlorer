@@ -155,12 +155,15 @@ mod water_gpu;
 mod weather_gpu;
 #[cfg(windows)]
 mod windows_setup;
+mod world_catalog;
 mod world_models;
 mod world_models_gpu;
 mod world_objects;
 struct Terrain {
+    /// The loaded client world/map, including its authored name and directory.
+    map: world_catalog::WorldMap,
     element: PathBuf,
-    /// Cells per T2BK block edge (`world.trn2` header dword @20).
+    /// Cells per T2BK block edge (`<map>.trn2` header dword @20).
     grid: usize,
     width: usize,
     height: usize,
@@ -475,17 +478,24 @@ fn decode_block(tile: &TileDecode, scratch: &mut BlockScratch, bi: usize) -> Res
 /// the fully decoded terrain grid (no disk paging, no block decode) instead of
 /// the paged cache, which is much faster at load and while flying and uses the
 /// whole grid in RAM.
-fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
-    let dir = if root.join("element/maps/world/world.trn2").is_file() {
-        root.join("element/maps/world")
-    } else if root.join("maps/world/world.trn2").is_file() {
-        root.join("maps/world")
-    } else if root.join("world.trn2").is_file() {
-        root.to_path_buf()
-    } else {
-        return Err("expected client root, element folder, or maps/world directory".into());
-    };
-    let t = fs::read(dir.join("world.trn2")).map_err(|e| e.to_string())?;
+fn terrain(
+    root: &Path,
+    all_to_vram: bool,
+    preferred_world: Option<&str>,
+) -> Result<Terrain, String> {
+    let map = world_catalog::resolve(root, preferred_world)?;
+    let dir = map.dir.clone();
+    let element = map.element.clone();
+    eprintln!(
+        "Loading world {} ({}) from {}",
+        map.display_name,
+        map.id,
+        dir.display()
+    );
+    #[cfg(windows)]
+    windows_setup::loading_progress(format!("Loading {}...", map.label()));
+    let terrain_path = map.file("trn2");
+    let t = fs::read(&terrain_path).map_err(|e| format!("{}: {e}", terrain_path.display()))?;
     if u32at(&t, 0)? != 0x54524e32 || u32at(&t, 4)? > 1 {
         return Err("unsupported TRN2".into());
     }
@@ -638,10 +648,13 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
         (None, Some(pages)) => pages.finish(terrain_store::budget())?,
         (None, None) => return Err("terrain cache was not built".into()),
     };
-    let world_scene = scene::Scene::load(&dir.join("world.ecwld"))?;
-    let cloud_surface = match fs::read(dir.join("world.cld")) {
+    let scene_path = map.file("ecwld");
+    let world_scene = scene::Scene::load(&scene_path)?;
+    let cloud_path = map.file("cld");
+    let cloud_surface = match fs::read(&cloud_path) {
         Ok(bytes) => {
-            let cloud = cloud_surface::parse(&bytes).map_err(|e| format!("world.cld: {e}"))?;
+            let cloud = cloud_surface::parse(&bytes)
+                .map_err(|e| format!("{}: {e}", cloud_path.display()))?;
             let (cell_count, vertex_count, group_count, index_count) =
                 cloud.cells.iter().flatten().fold(
                     (0usize, 0usize, 0usize, 0usize),
@@ -658,10 +671,13 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
             Some(std::sync::Arc::new(cloud))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("world.cld unavailable; native cloud surface omitted");
+            eprintln!(
+                "{} unavailable; native cloud surface omitted",
+                cloud_path.display()
+            );
             None
         }
-        Err(e) => return Err(format!("world.cld: {e}")),
+        Err(e) => return Err(format!("{}: {e}", cloud_path.display())),
     };
     if (world_scene.width - w as f32 * grid_spacing).abs() > 0.1
         || (world_scene.length - h as f32 * grid_spacing).abs() > 0.1
@@ -673,7 +689,8 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
         "Loaded {} water areas from client BSData grids",
         water.len()
     );
-    let ornaments = world_scene.load_ornaments(&dir.join("world.ecbsd"))?;
+    let ecbsd_path = map.file("ecbsd");
+    let ornaments = world_scene.load_ornaments(&ecbsd_path)?;
     eprintln!(
         "Loaded {} unique world ornament placements; nearby BMD meshes will stream during flight",
         ornaments.len()
@@ -685,19 +702,15 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
     #[cfg(windows)]
     windows_setup::loading_progress("Loading terrain materials and masks...".into());
     let materials = material::Materials::load(&dir, &t, &names, w, h, grid_spacing)?;
-    let element = dir
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("invalid world path")?;
-    let water_normals = water::load_normals(element)?;
-    let water_simple_frames = water::load_simple_frames(element)?;
-    let objects = objects::Objects::open(element, ornaments)?;
+    let water_normals = water::load_normals(&element)?;
+    let water_simple_frames = water::load_simple_frames(&element)?;
+    let objects = objects::Objects::open(&element, ornaments)?;
     let placements: Vec<_> = world_scene
         .blocks
         .iter()
         .flat_map(|b| b.models.iter().cloned())
         .collect();
-    let models = match world_models::Assets::open(element, placements.clone()) {
+    let models = match world_models::Assets::open(&element, placements.clone()) {
         Ok(models) => models,
         Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
     };
@@ -705,7 +718,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
     for failure in &models.failures {
         eprintln!("EC model dependency: {failure}");
     }
-    let grass = grass::Grass::load(&world_scene, &dir, element)?;
+    let grass = grass::Grass::load(&world_scene, &dir, &element)?;
     #[cfg(windows)]
     windows_setup::loading_progress(
         "Preparing trees (first run may take several minutes)...".into(),
@@ -715,14 +728,14 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
     } else {
         #[cfg(windows)]
         {
-            windows_setup::prepare_trees(element)?
+            windows_setup::prepare_trees_for_scene(&element, &scene_path)?
         }
         #[cfg(not(windows))]
         {
             PathBuf::from("tree-cache")
         }
     };
-    let trees = trees::Trees::open(element, &world_scene, &tree_cache)?;
+    let trees = trees::Trees::open(&element, &world_scene, &tree_cache)?;
     #[cfg(windows)]
     if std::env::var_os("PW_TREE_CACHE").is_none() && trees.types.iter().any(|tree| tree.is_none())
     {
@@ -752,7 +765,8 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
         scene: std::sync::Arc::new(world_scene),
         scenery_residency: scenery_visibility::RegionResidency::default(),
         terrain_material_window: None,
-        element: element.to_path_buf(),
+        map: map.clone(),
+        element: element.clone(),
         grass,
         water_normals,
         water_simple_frames,
@@ -838,9 +852,16 @@ fn main() {
             }
         }
     }
+    // `--world <map-id>` is the headless spelling of the Teleport List's world
+    // selector and is also how the GUI restarts itself after "Change world".
+    let mut world_override: Option<String> = None;
+    if args.len() >= 4 && args[2].to_string_lossy() == "--world" {
+        world_override = Some(args[3].to_string_lossy().into_owned());
+        args.drain(2..4);
+    }
     if args.len() < 2 || (args.len() > 4 && args.len() != 9) {
         eprintln!(
-            "Usage: perfect-world-explorer <client-root> [terrain-output.png | --preview-3d output.png]"
+            "Usage: perfect-world-explorer <client-root> [--world <map-id>] [terrain-output.png | --preview-3d output.png]"
         );
         std::process::exit(2)
     }
@@ -855,7 +876,7 @@ fn main() {
     // The client root comes first: it is what "do not write the logs in there"
     // is measured against, both for the default and for a folder the settings
     // file still remembers from a build that wrote next to the game.
-    diagnostics::set_client_root(&path);
+    diagnostics::set_client_root(&world_catalog::client_root(&path));
     diagnostics::set_default_dir(diagnostics::default_log_dir());
     if !saved.logging_dir.trim().is_empty()
         && diagnostics::inside_client(std::path::Path::new(saved.logging_dir.trim()))
@@ -878,7 +899,10 @@ fn main() {
     objects::set_unbounded_textures(saved.all_to_vram);
     #[cfg(windows)]
     let loading = windows_setup::LoadingWindow::start();
-    let loaded = terrain(&path, saved.all_to_vram);
+    let preferred_world = world_override
+        .as_deref()
+        .unwrap_or(saved.selected_world.as_str());
+    let loaded = terrain(&path, saved.all_to_vram, Some(preferred_world));
     let result = loaded.and_then(|mut t| match args.len() {
         #[cfg(windows)]
         2 => gpu::run(t, Some(loading)),
