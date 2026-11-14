@@ -6268,3 +6268,38 @@ named: `A3DTrail::TickAnimation`/`FillVertexBuffer` (ribbons ×
 (BoltScale oval law, the 200-seg cap and the 16-seg arc), the model element's
 `CanDoFadeOut`/rewind pair, and `LoadSoundParamInfo`'s parameter rows. The
 load keys around them are captured above and in §22.
+
+## 64. Source session: the disputed laws settled (2026-11-09)
+
+The Drive connector's `read_file_text` recovered whole files this session and
+settled every open law the two agent lists disputed. Full per-item verdicts:
+`Findings/agent-lists-review-2026-11-09.md`. The load-bearing lines:
+
+* **PlaySpeed is a product.** `A3DGFXEx.h`:
+  `CalcActualSpeed() { m_fActualSpeed = m_fDefPlaySpeed * m_fPlaySpeed; }` —
+  `SetPlaySpeed` stores only `m_fPlaySpeed`, so a placement's `fSpeed` scales
+  the authored `PlaySpeed`, never replaces it. The player-field comment and
+  the owner comment that claimed replacement are corrected (`00d2097`), and
+  `play_speed_multiplies_the_authored_speed` pins 0.4 × {0, 1, 2}.
+* **The noise range is [−1, 1].** `APerlinNoiseBase::RandFloat`:
+  `(RandInteger() % 2001 - 1000) / 1000` — exactly the fbm basis range, so
+  D5 closes with the citation (`7416bb0`).
+* **No lightning Interval floor.** `A3DGFXLightning::TickAnimation` consumes
+  `m_nInterval` raw (default 100, `ID_GFXOP_LN_INTERVAL` assigns unclamped);
+  D1 closes: the `max(1)` guards are division safety only. `BuildPath`
+  re-randomizes through the 112 noise base each interval
+  (`fStart = a_Random(0, 1022)`).
+* **2D render forces Z-test off.** `A3DGFXEx.h`:
+  `Set2DRender(bool b) { m_b2DRender = b; m_bZTestEnable = !b; }`.
+* **Element ids from `A3DGFXElement.h`'s tables** — Warp 1014 (warp queue +
+  `DrawToBuffer(A3DWARPVERTEX*)`, reported: the consuming render pass is not
+  in the dump), `PARSYS_SCALE_NO_OFFSET` 105, `IS_DUMMY` 1012 + `DUMMY_ELE`
+  1013 + `USE_GFX_SCALE_WHENDUMMY` 104, `BOLT_AMP` 107 (our
+  `stroke_amplitude`), `DECAL_MATCH_SURFACE` 109, `MODEL_ALPHA_CMP` 103,
+  `LN_INTERVAL` 105. The `ID_PARAM_*` enable flags are host-driver endpoint
+  slots (`EnableParam`/`UpdateParam`), inert without a driver.
+* **Version history** (V17 play speed, V30 scale-no-offset, V32 dummy, V50
+  2D render, V54-57 match surface, V74 reset-on-loop with its pre-74
+  compatibility comment in `A3DGFXLightningEx::ResumeLoop`, V81 ClTrans
+  alpha-only, V88 sound paths, V100-101 grid options) is quoted in the
+  review file; `GFX_CUR_VERSION 103`.
