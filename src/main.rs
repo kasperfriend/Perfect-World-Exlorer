@@ -1,4 +1,4 @@
-mod upscaling;#![cfg_attr(windows, windows_subsystem = "windows")]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 use flate2::read::ZlibDecoder;
 use std::{
     env, fs,
@@ -106,7 +106,6 @@ mod post_gpu;
 mod post_reference;
 mod present_encode;
 mod render_scale;
-
 #[allow(dead_code)]
 mod scene;
 #[allow(dead_code)]
@@ -123,6 +122,7 @@ mod sky_config;
 mod sky_geometry;
 mod sky_gpu;
 mod sky_time;
+mod upscaling;
 mod world_audio;
 // Accessors that only the Phase 5 diagnostic and the future weather wiring use
 // are kept public and unreferenced here, like `client_sun`.
