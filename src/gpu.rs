@@ -1536,7 +1536,10 @@ pub fn ten_class_placements(t: &Terrain) -> Result<Vec<crate::scenery_visibility
         }
     }
     if seen_ornaments.len() != t.objects.ornaments.len() {
-        let missing = t.objects.ornaments.iter()
+        let missing = t
+            .objects
+            .ornaments
+            .iter()
             .filter(|ornament| !seen_ornaments.contains(&ornament.export_id))
             .map(|ornament| ornament.export_id.to_string())
             .collect::<Vec<_>>();

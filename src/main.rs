@@ -293,14 +293,20 @@ fn load_world_assets(
             Some(std::sync::Arc::new(cloud))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("{} unavailable; native cloud surface omitted", cloud_path.display());
+            eprintln!(
+                "{} unavailable; native cloud surface omitted",
+                cloud_path.display()
+            );
             None
         }
         Err(e) => return Err(format!("{}: {e}", cloud_path.display())),
     };
 
     let ornaments = world_scene.load_ornaments(&map.file("ecbsd"))?;
-    eprintln!("Loaded {} unique world ornament placements; nearby BMD meshes will stream during flight", ornaments.len());
+    eprintln!(
+        "Loaded {} unique world ornament placements; nearby BMD meshes will stream during flight",
+        ornaments.len()
+    );
     let tree_count: usize = world_scene.blocks.iter().map(|b| b.trees.len()).sum();
     let model_count: usize = world_scene.blocks.iter().map(|b| b.models.len()).sum();
     eprintln!("Loaded scene placements: {tree_count} trees, {model_count} EC models");
@@ -313,8 +319,8 @@ fn load_world_assets(
     // These asset groups read independent sources and do not depend on decoded
     // terrain heights. Keep their original output intact, but let archives,
     // tree caches and BSData work concurrently while terrain is also decoding.
-    let (water, objects, models, grass, trees, environments, scene_lights) =
-        std::thread::scope(|scope| -> Result<_, String> {
+    let (water, objects, models, grass, trees, environments, scene_lights) = std::thread::scope(
+        |scope| -> Result<_, String> {
             let water_worker = scope.spawn(|| water::load(&world_scene, dir));
             let objects_worker = scope.spawn(move || objects::Objects::open(element, ornaments));
             let models_worker = scope.spawn(move || {
@@ -357,7 +363,10 @@ fn load_world_assets(
                 // static scenery keeps its separately traced baked-light path.
                 let lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
                     Ok(lights) => {
-                        eprintln!("Loaded {} client scene lights (static query only)", lights.lights.len());
+                        eprintln!(
+                            "Loaded {} client scene lights (static query only)",
+                            lights.lights.len()
+                        );
                         lights
                     }
                     Err(e) => {
@@ -368,15 +377,35 @@ fn load_world_assets(
                 Ok::<_, String>((environments, std::sync::Arc::new(lights)))
             });
 
-            let water = water_worker.join().map_err(|_| "water-area loader panicked")??;
-            eprintln!("Loaded {} water areas from client BSData grids", water.len());
-            let objects = objects_worker.join().map_err(|_| "scenery object archive loader panicked")??;
-            let models = models_worker.join().map_err(|_| "EC model archive loader panicked")??;
+            let water = water_worker
+                .join()
+                .map_err(|_| "water-area loader panicked")??;
+            eprintln!(
+                "Loaded {} water areas from client BSData grids",
+                water.len()
+            );
+            let objects = objects_worker
+                .join()
+                .map_err(|_| "scenery object archive loader panicked")??;
+            let models = models_worker
+                .join()
+                .map_err(|_| "EC model archive loader panicked")??;
             let grass = grass_worker.join().map_err(|_| "grass loader panicked")??;
             let trees = tree_worker.join().map_err(|_| "tree loader panicked")??;
-            let (environments, scene_lights) = regional_worker.join().map_err(|_| "regional world loader panicked")??;
-            Ok((water, objects, models, grass, trees, environments, scene_lights))
-        })?;
+            let (environments, scene_lights) = regional_worker
+                .join()
+                .map_err(|_| "regional world loader panicked")??;
+            Ok((
+                water,
+                objects,
+                models,
+                grass,
+                trees,
+                environments,
+                scene_lights,
+            ))
+        },
+    )?;
     Ok(WorldAssets {
         scene: world_scene,
         cloud_surface,
@@ -504,11 +533,9 @@ where
                     }
                     let decoded = {
                         let _permit = crate::loading_workers::acquire();
-                        decode_block_owned(tile, &mut scratch, bi).and_then(
-                            |(heights, normals)| {
-                                prepare_terrain_block(heights, normals, tile.grid, paged)
-                            },
-                        )
+                        decode_block_owned(tile, &mut scratch, bi).and_then(|(heights, normals)| {
+                            prepare_terrain_block(heights, normals, tile.grid, paged)
+                        })
                     };
                     let failed = decoded.is_err();
                     if tx.send((bi, decoded)).is_err() || failed {
@@ -801,14 +828,8 @@ fn terrain(
         (None, None, None)
     } else if terrain_store::might_have_warm_cache(&cache_root) {
         let identity = terrain_store::source_identity(&t, &dir, &names)?;
-        let cached = terrain_store::restore(
-            &cache_root,
-            &identity,
-            w,
-            h,
-            grid,
-            terrain_store::budget(),
-        )?;
+        let cached =
+            terrain_store::restore(&cache_root, &identity, w, h, grid, terrain_store::budget())?;
         (Some(identity), None, cached)
     } else {
         // First-ever terrain load: do not read every source tile once for its
@@ -884,16 +905,13 @@ fn terrain(
     // the full map's compressed bytes or changing builder insertion order.
     if terrain_pages.is_some() {
         std::thread::scope(|scope| -> Result<(), String> {
-            let (send, receive) = std::sync::mpsc::sync_channel::<
-                (usize, String, Result<Vec<u8>, String>),
-            >(1);
+            let (send, receive) =
+                std::sync::mpsc::sync_channel::<(usize, String, Result<Vec<u8>, String>)>(1);
             let reader_dir = dir.clone();
             let reader_names = &names;
             scope.spawn(move || {
                 for (si, name) in reader_names.iter().enumerate() {
-                    let result = if name.contains('/')
-                        || name.contains('\\')
-                        || name.contains("..")
+                    let result = if name.contains('/') || name.contains('\\') || name.contains("..")
                     {
                         Err("unsafe subterrain path".to_string())
                     } else {
@@ -963,9 +981,7 @@ fn terrain(
                         PreparedTerrainBlock::Resident(heights, normals) => {
                             builder.block(bc, br, &heights, &normals)
                         }
-                        PreparedTerrainBlock::Paged(packed) => {
-                            builder.block_packed(bc, br, packed)
-                        }
+                        PreparedTerrainBlock::Paged(packed) => builder.block_packed(bc, br, packed),
                     }
                 })?;
                 eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);

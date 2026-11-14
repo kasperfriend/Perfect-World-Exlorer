@@ -1120,7 +1120,10 @@ mod tests {
         let (serial_heights, serial_normals) = serial.finish(1024).unwrap();
         let (packed_heights, packed_normals) = packed.finish(1024).unwrap();
         for i in 0..64 {
-            assert_eq!(serial_heights.at(i).to_bits(), packed_heights.at(i).to_bits());
+            assert_eq!(
+                serial_heights.at(i).to_bits(),
+                packed_heights.at(i).to_bits()
+            );
             assert_eq!(serial_normals.at(i), packed_normals.at(i));
         }
     }
