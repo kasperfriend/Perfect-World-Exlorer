@@ -24,8 +24,9 @@ it, not this page, is authoritative for your copy.
    - the folder set in `viewer-settings.txt` as `upscale_sdk_dir=<path>`
      (the Graphics tab has no text box for it yet; edit the file while the
      viewer is closed). Restart the viewer afterwards.
-3. Run `dx12-upscale-check --sdk-dir <path>` and
-   `dx12-framegen-check --sdk-dir <path>` to see what was detected.
+3. Run `perfect-world-explorer --diagnose-upscale --sdk-dir <path>`
+   and `perfect-world-explorer --diagnose-framegen --sdk-dir <path>`
+   to see what was detected.
 4. `.gitignore` ignores `*.dll` and `/sdk/`; never commit vendor binaries.
    `tools/package-windows.ps1` stages only the redistributable set described
    below.

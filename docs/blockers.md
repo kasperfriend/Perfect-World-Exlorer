@@ -44,10 +44,11 @@ done.
   Vulkan/D3D12 adapter can be created locally.
 - **Tried:** `nvidia-smi`, `ls /dev/dri` — both absent.
 - **Workaround:** GPU checks are marked **not verified** locally; CI runs the
-  existing suite headless on lavapipe. The new `dx12-upscale-check` and
-  `dx12-framegen-check` diagnostics are written to succeed with no GPU (they
-  print the support matrix and SDK probe report, exit 0), so CI exercises
-  their logic paths without hardware.
+  existing suite headless on lavapipe. The `--diagnose-upscale` /
+  `--diagnose-framegen` viewer flags (formerly the `dx12-*-check` bins) are
+  written to succeed with no GPU (they print the support matrix and SDK
+  probe report, exit 0), so their logic paths can be exercised without
+  hardware.
 - **Status:** open (needs a Windows RTX/AMD/Intel machine + the SDKs).
 
 ## B-3 — Vendor SDKs cannot be downloaded here (Phases 3, 4, 5)
@@ -67,10 +68,11 @@ done.
   binaries in the repository are the AMD FSR SDK 2.4.0 signed DX12 DLLs
   (MIT-style terms, notices reproduced in `sdk/AMD_FidelityFX-SDK-2.4.0-LICENSE.md`,
   `THIRD_PARTY_NOTICES.md`; SHA256 recorded there). Instead:
-  - `src/upscaling.rs` implements the full option state machine, pairing
-    table, jitter sequence, per-provider internal resolutions and quality
-    modes — all unit-tested logic, compiled into the viewer.
-  - `src/upscaling.rs::probe_sdk` probes a user-selected SDK directory
+  - `src/main.rs` (the former `src/upscaling.rs`, merged into the viewer
+    binary) implements the full option state machine, pairing table, jitter
+    sequence, per-provider internal resolutions and quality modes — all
+    unit-tested logic, compiled into the viewer.
+  - `probe_sdk` (in the same merged module) probes a user-selected SDK directory
     (`PW_UPSCALER_SDK_DIR`, the `upscale_sdk_dir` settings key, or
     `<exe>\sdk\`) for the documented DLL names and reports what it finds;
     every provider stays disabled with a visible reason until a real SDK is
@@ -129,7 +131,7 @@ and frame generation").
   and depth-format changes. Cannot be compiled or visually verified (B-1, B-2),
   and any mistake is a full render breakage, not a partial failure.
 - **Tried:** scoped the change to: a unit-tested jitter sequence + matrix
-  helper (`src/upscaling.rs::jitter_*`) and a documented target/format
+  helper (`jitter_*`, now in `src/main.rs`) and a documented target/format
   requirement in `docs/dx12-port-notes.md` §7. The generic projection and
   shaders are **not** modified for other paths. The FSR path (`src/fsr.rs`,
   Windows + DX12) jitters only the world projection (UI/minimap/compositor
@@ -192,7 +194,7 @@ and frame generation").
 - **Tried:** diagnostics `TimingFrame`/`EffectFrames` channels exist
   (`src/diagnostics.rs`) and are the right probe; the pacing contract is
   documented for the implementer in `README.md` and
-  `docs/dx12-port-notes.md` §7. The `dx12-framegen-check` diagnostic prints
+  `docs/dx12-port-notes.md` §7. The `--diagnose-framegen` viewer flag prints
   the pacing expectations it would enforce.
 - **Status:** open (blocked by B-2/B-3/B-4).
 

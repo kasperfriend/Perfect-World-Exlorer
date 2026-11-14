@@ -188,7 +188,8 @@ defaults (see the migration test in `view_settings.rs`).
    FSR / XeSS) and **Frame generation** (`Off` / DLSS Frame Generation /
    FSR Frame Generation / XeSS Frame Generation), independent selectors,
    disabled options with a visible reason, Resolution scale slider active only
-   when Upscaling is Off. The new module `src/upscaling.rs` holds the state
+   when Upscaling is Off. This module (the former `src/upscaling.rs`, now merged
+   into the viewer) holds the state
    machine, jitter sequence, per-provider recommended internal resolutions,
    the pairing table, and `probe_sdk`, which probes a user-chosen directory
    (Settings → `upscale_sdk_dir` or `PW_UPSCALER_SDK_DIR` or `<exe>\sdk\`)
@@ -204,8 +205,9 @@ defaults (see the migration test in `view_settings.rs`).
    used, the world renders through the existing fallback path at the
    provider's recommended internal resolution — the UI says so, and no
    temporal accumulation is faked (see `docs/blockers.md` B-3).
-3. **Diagnostics**: `src/bin/dx12-upscale-check.rs`,
-   `src/bin/dx12-framegen-check.rs` print the support/pairing matrix and the
+3. **Diagnostics**: `perfect-world-explorer --diagnose-upscale` and
+   `perfect-world-explorer --diagnose-framegen` (flags on the viewer binary)
+   print the support/pairing matrix and the
    SDK probe results; they need no client and no GPU (they degrade to a
    report with exit 0 when no adapter or SDK is present; `--require-sdk` /
    `--require-gpu` make them fail in an SDK/GPU-equipped environment, exit 4/5).
