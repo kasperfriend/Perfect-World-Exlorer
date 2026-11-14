@@ -770,7 +770,9 @@ pub fn load_sequences(
                                                     decode_water_dds_mips(&base)
                                                         .map_err(|e| format!("{name}: {e}; {err}"))
                                                         .map(|levels| {
-                                                            eprintln!("{name}: {err}; using base level");
+                                                            eprintln!(
+                                                                "{name}: {err}; using base level"
+                                                            );
                                                             levels
                                                         })
                                                 }

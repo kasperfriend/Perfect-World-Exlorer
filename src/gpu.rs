@@ -869,7 +869,12 @@ fn build(
     // nine classes use disjoint synthetic indices for the resident-bit set.
     let object_start = indices.len() as u32;
     let scenery_placements = ten_class_placements(t)?;
-    let authored_ornament_links: usize = t.scene.blocks.iter().map(|block| block.ornaments.len()).sum();
+    let authored_ornament_links: usize = t
+        .scene
+        .blocks
+        .iter()
+        .map(|block| block.ornaments.len())
+        .sum();
     let unique_ornament_refs = scenery_placements
         .iter()
         .filter(|placement| placement.class == Class::Ornaments)

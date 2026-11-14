@@ -86,8 +86,7 @@ impl Assets {
             return Ok(Self::default());
         }
         let archive = element.join("models.pck");
-        let mut index_file =
-            File::open(&archive).map_err(|e| format!("models.pck: {e}"))?;
+        let mut index_file = File::open(&archive).map_err(|e| format!("models.pck: {e}"))?;
         let mut entries = HashMap::new();
         for entry in crate::pck::directory(&mut index_file)? {
             let name = ecmodel::normalize(&entry.name);
@@ -173,9 +172,10 @@ impl Assets {
             let asset = if let Some(index) = cache.get(&path) {
                 *index
             } else {
-                let index = match loaded.remove(&path).unwrap_or_else(|| {
-                    Err(format!("missing parallel world-model result: {path}"))
-                }) {
+                let index = match loaded
+                    .remove(&path)
+                    .unwrap_or_else(|| Err(format!("missing parallel world-model result: {path}")))
+                {
                     Ok(asset) => {
                         let index = result.assets.len();
                         result.assets.push(asset);
