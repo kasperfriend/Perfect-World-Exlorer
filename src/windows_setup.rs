@@ -126,7 +126,14 @@ fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
 /// world can still prepare its tree cache from an instance map.
 fn default_scene_file(element: &Path) -> PathBuf {
     let maps = element.join("maps");
-    let mut dirs = fs::read_dir(maps)
+    // Prefer the canonical main world when it exists. Sorting all folders first
+    // would choose `a01` on most clients and silently cache the wrong tree table
+    // for callers that ask for the default scene.
+    let main_world = maps.join("world");
+    if let Some(path) = find_file(&main_world, "world.ecwld") {
+        return path;
+    }
+    let mut dirs = fs::read_dir(&maps)
         .ok()
         .into_iter()
         .flatten()
@@ -168,17 +175,26 @@ fn cache_key(element: &Path, scene_path: &Path) -> Result<u64, String> {
     BRIDGE.hash(&mut h);
     Ok(h.finish())
 }
-fn ready(dir: &Path) -> bool {
-    dir.join("ready").is_file() && (0..59).all(|i| dir.join(format!("tree-{i:03}.pwt")).is_file())
+fn ready(dir: &Path, tree_type_count: usize) -> bool {
+    dir.join("ready").is_file()
+        && (0..tree_type_count).all(|i| dir.join(format!("tree-{i:03}.pwt")).is_file())
 }
 pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
-    prepare_trees_for_scene(element, &default_scene_file(element))
+    let scene_path = default_scene_file(element);
+    let scene = crate::scene::Scene::load(&scene_path)?;
+    prepare_trees_for_scene(element, &scene_path, scene.tree_types.len())
 }
 
 /// Prepare trees from the selected map's ECWLD. Different maps reference
 /// different tree types, so the cache key and extraction source must follow the
-/// loaded world rather than always using `maps/world`.
-pub fn prepare_trees_for_scene(element: &Path, scene_path: &Path) -> Result<PathBuf, String> {
+/// loaded world rather than always using `maps/world`. `tree_type_count` is the
+/// selected scene's authored tree table size; instance maps need not define the
+/// main world's 59 types.
+pub fn prepare_trees_for_scene(
+    element: &Path,
+    scene_path: &Path,
+    tree_type_count: usize,
+) -> Result<PathBuf, String> {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .ok_or("LOCALAPPDATA is not set")?
@@ -187,7 +203,7 @@ pub fn prepare_trees_for_scene(element: &Path, scene_path: &Path) -> Result<Path
     fs::create_dir_all(&base).map_err(|e| format!("Cannot create tree cache: {e}"))?;
     let key = cache_key(element, scene_path)?;
     let final_dir = base.join(format!("pwt08-{key:016x}"));
-    if ready(&final_dir) {
+    if ready(&final_dir, tree_type_count) {
         eprintln!("Using prepared SpeedTree cache {}", final_dir.display());
         let report = final_dir.join("tree-alpha-refs.csv");
         if report.is_file() {
@@ -223,27 +239,30 @@ pub fn prepare_trees_for_scene(element: &Path, scene_path: &Path) -> Result<Path
             .map_err(|e| e.to_string())?;
         f.write_all(BRIDGE).map_err(|e| e.to_string())?;
         drop(f);
-        let out = Command::new(&helper)
-            .arg(element.join("speedtreert.dll"))
-            .arg(&data)
-            .creation_flags(0x08000000)
-            .output()
-            .map_err(|e| format!("Unable to launch 32-bit SpeedTree bridge: {e}"))?;
-        if !out.status.success() {
-            return Err(format!(
-                "SpeedTree preparation failed ({})\n{}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr)
-            ));
+        if tree_type_count > 0 {
+            let out = Command::new(&helper)
+                .arg(element.join("speedtreert.dll"))
+                .arg(&data)
+                .arg(tree_type_count.to_string())
+                .creation_flags(0x08000000)
+                .output()
+                .map_err(|e| format!("Unable to launch 32-bit SpeedTree bridge: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "SpeedTree preparation failed ({})\n{}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr)
+                ));
+            }
         }
-        for i in 0..59 {
+        for i in 0..tree_type_count {
             if !data.join(format!("tree-{i:03}.pwt")).is_file() {
                 return Err(format!("SpeedTree type {i} did not generate"));
             }
         }
         // The viewer reads source textures directly from the client's PCK. Do not
         // retain duplicate extracted SPT/DDS files or placement spreadsheets.
-        for i in 0..59 {
+        for i in 0..tree_type_count {
             for ext in ["spt", "dds"] {
                 fs::remove_file(data.join(format!("tree-{i:03}.{ext}")))
                     .map_err(|e| format!("Cannot clean temporary tree source: {e}"))?;
@@ -257,7 +276,7 @@ pub fn prepare_trees_for_scene(element: &Path, scene_path: &Path) -> Result<Path
         match fs::rename(&data, &final_dir) {
             Ok(()) => {}
             Err(e) => {
-                if !ready(&final_dir) {
+                if !ready(&final_dir, tree_type_count) {
                     return Err(format!("Cannot publish tree cache: {e}"));
                 }
             }

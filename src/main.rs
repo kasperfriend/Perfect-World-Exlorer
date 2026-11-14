@@ -728,7 +728,11 @@ fn terrain(
     } else {
         #[cfg(windows)]
         {
-            windows_setup::prepare_trees_for_scene(&element, &scene_path)?
+            windows_setup::prepare_trees_for_scene(
+                &element,
+                &scene_path,
+                world_scene.tree_types.len(),
+            )?
         }
         #[cfg(not(windows))]
         {
