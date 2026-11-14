@@ -49,8 +49,8 @@ mod ecmodel;
 mod environment;
 mod far_trees_gpu;
 mod fog_matrix;
-mod fsr;
 mod foliage_mips;
+mod fsr;
 #[allow(dead_code)]
 mod gfx_catalog;
 mod gfx_color_track;
@@ -851,7 +851,6 @@ fn export_height_png(
 //
 // This logic is intentionally free of GPU and windowing dependencies so it
 // can be unit-tested headless. The provider FFI lives in gpu.rs.
-
 
 /// Vendor IDs as reported by `wgpu::AdapterInfo::vendor`.
 pub const VENDOR_NVIDIA: u32 = 0x10de;
@@ -2003,7 +2002,6 @@ mod tests {
             .unwrap()
             .contains("PW_UPSCALER_SDK_DIR"));
     }
-
 }
 
 // ----------------------------------------------------------------
@@ -2179,7 +2177,6 @@ fn diagnose_upscale(args: &[String]) -> i32 {
                 let (x, y) = jitter_offset(frame);
                 println!("  frame {frame:2}: ({x:+.5}, {y:+.5}) px");
             }
-
         }
         None => {
             println!("GPU: no adapter could be created (headless or no driver).");

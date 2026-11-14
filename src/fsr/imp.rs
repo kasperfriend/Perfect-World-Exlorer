@@ -3,8 +3,10 @@
 
 use glam::Mat4;
 use std::ffi::c_void;
-use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
-    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_FLOAT};
+use winapi::shared::dxgiformat::{
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_FLOAT,
+    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+};
 use winapi::um::d3d12 as d3d12_ty;
 
 const FFX_UPSCALER_VERSION: u32 = (4 << 22) | (1 << 12) | 2;
@@ -36,8 +38,7 @@ const D3D12_STATE_COMMON: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COMMON;
 const D3D12_STATE_COPY_DEST: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COPY_DEST;
 const D3D12_STATE_RENDER_TARGET: u32 = d3d12_ty::D3D12_RESOURCE_STATE_RENDER_TARGET;
 const D3D12_STATE_UNORDERED_ACCESS: u32 = d3d12_ty::D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-const D3D12_STATE_PIXEL_COMPUTE_READ: u32 =
-    d3d12_ty::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+const D3D12_STATE_PIXEL_COMPUTE_READ: u32 = d3d12_ty::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
     | d3d12_ty::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
 #[repr(C)]
@@ -210,11 +211,8 @@ struct FfxDispatchDescUpscale {
 type FfxReturnCode = u32;
 const FFX_API_RETURN_OK: FfxReturnCode = 0;
 
-type PfnFfxCreateContext = unsafe extern "C" fn(
-    *mut *mut c_void,
-    *mut FfxApiHeader,
-    *const c_void,
-) -> FfxReturnCode;
+type PfnFfxCreateContext =
+    unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader, *const c_void) -> FfxReturnCode;
 type PfnFfxDestroyContext = unsafe extern "C" fn(*mut *mut c_void, *const c_void) -> FfxReturnCode;
 type PfnFfxQuery = unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader) -> FfxReturnCode;
 type PfnFfxDispatch = unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
@@ -231,7 +229,14 @@ extern "C" fn fsr_message_callback(message_type: u32, message: *const u16) {
         len
     };
     let text = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(message, len) });
-    eprintln!("[FSR {}] {text}", if message_type == 0 { "error" } else { "warning" });
+    eprintln!(
+        "[FSR {}] {text}",
+        if message_type == 0 {
+            "error"
+        } else {
+            "warning"
+        }
+    );
 }
 
 struct FfxLoader {
@@ -693,7 +698,13 @@ impl FsrComposite {
         }
     }
 
-    fn draw(&self, device: &wgpu::Device, queue: &wgpu::Queue, source: &wgpu::Texture, target: &wgpu::TextureView) {
+    fn draw(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: &wgpu::Texture,
+        target: &wgpu::TextureView,
+    ) {
         let view = source.create_view(&wgpu::TextureViewDescriptor::default());
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fsr composite source"),
@@ -763,28 +774,51 @@ impl FsrNatives {
         format: wgpu::TextureFormat,
     ) -> Result<FsrNatives, String> {
         let color = NativeTexture2D::create(
-            device, raw_device, "fsr color", format, dxgi_color_format(format),
-            render_extent, d3d12_ty::D3D12_RESOURCE_FLAG_NONE,
+            device,
+            raw_device,
+            "fsr color",
+            format,
+            dxgi_color_format(format),
+            render_extent,
+            d3d12_ty::D3D12_RESOURCE_FLAG_NONE,
             wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
         )?;
         let depth = NativeTexture2D::create(
-            device, raw_device, "fsr depth", wgpu::TextureFormat::R32Float,
-            DXGI_FORMAT_R32_FLOAT, render_extent,
+            device,
+            raw_device,
+            "fsr depth",
+            wgpu::TextureFormat::R32Float,
+            DXGI_FORMAT_R32_FLOAT,
+            render_extent,
             d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
             wgpu::TextureUsages::RENDER_ATTACHMENT,
         )?;
         let mv = NativeTexture2D::create(
-            device, raw_device, "fsr motion vectors", wgpu::TextureFormat::Rg16Float,
-            DXGI_FORMAT_R16G16_FLOAT, render_extent,
+            device,
+            raw_device,
+            "fsr motion vectors",
+            wgpu::TextureFormat::Rg16Float,
+            DXGI_FORMAT_R16G16_FLOAT,
+            render_extent,
             d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         )?;
         let output = NativeTexture2D::create(
-            device, raw_device, "fsr output", format, dxgi_color_format(format),
-            display_extent, d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            device,
+            raw_device,
+            "fsr output",
+            format,
+            dxgi_color_format(format),
+            display_extent,
+            d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
             wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
         )?;
-        Ok(FsrNatives { color, depth, mv, output })
+        Ok(FsrNatives {
+            color,
+            depth,
+            mv,
+            output,
+        })
     }
 }
 
@@ -886,12 +920,16 @@ impl FsrUpscaler {
                 );
             }
         } else {
-            eprintln!("[FSR] provider enumeration returned 0x{rc:x}; the loader will pick a provider");
+            eprintln!(
+                "[FSR] provider enumeration returned 0x{rc:x}; the loader will pick a provider"
+            );
         }
 
         let (allocator, hr) = raw_device.create_command_allocator(d3d12::CmdListType::Direct);
         if hr < 0 {
-            return Err(format!("create_command_allocator failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "create_command_allocator failed (HRESULT 0x{hr:08x})"
+            ));
         }
         let (list, hr) = raw_device.create_graphics_command_list(
             d3d12::CmdListType::Direct,
@@ -900,13 +938,17 @@ impl FsrUpscaler {
             0,
         );
         if hr < 0 {
-            return Err(format!("create_graphics_command_list failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "create_graphics_command_list failed (HRESULT 0x{hr:08x})"
+            ));
         }
         // Close the still-open list so every frame can follow the
         // allocator.reset() + list.reset() pattern used for reused lists.
         let hr = list.close();
         if hr < 0 {
-            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"
+            ));
         }
 
         let mut backend = FfxCreateBackendDX12Desc {
@@ -938,13 +980,8 @@ impl FsrUpscaler {
             upscale.header.p_next = &mut backend.header as *mut FfxApiHeader;
         }
         let mut context: *mut c_void = std::ptr::null_mut();
-        let rc = unsafe {
-            (loader.create_context)(
-                &mut context,
-                &mut upscale.header,
-                std::ptr::null(),
-            )
-        };
+        let rc =
+            unsafe { (loader.create_context)(&mut context, &mut upscale.header, std::ptr::null()) };
         if rc != FFX_API_RETURN_OK || context.is_null() {
             return Err(format!("ffxCreateContext failed (0x{rc:x}); is amd_fidelityfx_upscaler_dx12.dll next to the loader?"));
         }
@@ -960,7 +997,9 @@ impl FsrUpscaler {
         let rc = unsafe { (loader.query)(&mut context, &mut phase_query.header) };
         if rc != FFX_API_RETURN_OK || phase_count <= 0 {
             unsafe { (loader.destroy_context)(&mut context, std::ptr::null()) };
-            return Err(format!("ffxQueryDescUpscaleGetJitterPhaseCount failed (0x{rc:x})"));
+            return Err(format!(
+                "ffxQueryDescUpscaleGetJitterPhaseCount failed (0x{rc:x})"
+            ));
         }
 
         let natives = match unsafe {
@@ -1099,8 +1138,16 @@ impl FsrUpscaler {
             aspect: wgpu::TextureAspect::Depth,
             ..Default::default()
         });
-        let mv_view = self.natives.mv.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let depth_out_view = self.natives.depth.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mv_view = self
+            .natives
+            .mv
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let depth_out_view = self
+            .natives
+            .depth
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fsr motion vector bind group"),
             layout: &self.mv_pass.layout,
@@ -1111,7 +1158,9 @@ impl FsrUpscaler {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(self.mv_pass.params.as_entire_binding()),
+                    resource: wgpu::BindingResource::Buffer(
+                        self.mv_pass.params.as_entire_binding(),
+                    ),
                 },
             ],
         });
@@ -1151,9 +1200,13 @@ impl FsrUpscaler {
         // moves so wgpu's tracker (and the next frame's copies) see the
         // states they expect.
         self.allocator.reset();
-        let hr = self.list.reset(&self.allocator, d3d12::PipelineState::null());
+        let hr = self
+            .list
+            .reset(&self.allocator, d3d12::PipelineState::null());
         if hr < 0 {
-            return Err(format!("ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"
+            ));
         }
         let subresource = d3d12_ty::D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         let none = d3d12_ty::D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -1161,10 +1214,26 @@ impl FsrUpscaler {
             d3d12::ResourceBarrier::transition(resource.clone(), subresource, before, after, none)
         };
         let barriers = [
-            barrier(&self.natives.color.resource, D3D12_STATE_COPY_DEST, D3D12_STATE_PIXEL_COMPUTE_READ),
-            barrier(&self.natives.depth.resource, D3D12_STATE_COPY_DEST, D3D12_STATE_PIXEL_COMPUTE_READ),
-            barrier(&self.natives.mv.resource, D3D12_STATE_RENDER_TARGET, D3D12_STATE_PIXEL_COMPUTE_READ),
-            barrier(&self.natives.output.resource, D3D12_STATE_COMMON, D3D12_STATE_UNORDERED_ACCESS),
+            barrier(
+                &self.natives.color.resource,
+                D3D12_STATE_COPY_DEST,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+            ),
+            barrier(
+                &self.natives.depth.resource,
+                D3D12_STATE_COPY_DEST,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+            ),
+            barrier(
+                &self.natives.mv.resource,
+                D3D12_STATE_RENDER_TARGET,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+            ),
+            barrier(
+                &self.natives.output.resource,
+                D3D12_STATE_COMMON,
+                D3D12_STATE_UNORDERED_ACCESS,
+            ),
         ];
         self.list.resource_barrier(&barriers);
 
@@ -1211,7 +1280,10 @@ impl FsrUpscaler {
                 y: self.current_jitter.1,
             },
             motion_vector_scale: FfxApiFloatCoords2D { x: 1.0, y: 1.0 },
-            render_size: FfxApiDimensions2D { width: rw, height: rh },
+            render_size: FfxApiDimensions2D {
+                width: rw,
+                height: rh,
+            },
             upscale_size: FfxApiDimensions2D {
                 width: self.display_extent.0,
                 height: self.display_extent.1,
@@ -1229,10 +1301,26 @@ impl FsrUpscaler {
         };
         let rc = unsafe { (self.loader.dispatch)(&mut self.context, &dispatch.header) };
         let restore = [
-            barrier(&self.natives.color.resource, D3D12_STATE_PIXEL_COMPUTE_READ, D3D12_STATE_COPY_DEST),
-            barrier(&self.natives.depth.resource, D3D12_STATE_PIXEL_COMPUTE_READ, D3D12_STATE_COPY_DEST),
-            barrier(&self.natives.mv.resource, D3D12_STATE_PIXEL_COMPUTE_READ, D3D12_STATE_RENDER_TARGET),
-            barrier(&self.natives.output.resource, D3D12_STATE_UNORDERED_ACCESS, D3D12_STATE_COMMON),
+            barrier(
+                &self.natives.color.resource,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+                D3D12_STATE_COPY_DEST,
+            ),
+            barrier(
+                &self.natives.depth.resource,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+                D3D12_STATE_COPY_DEST,
+            ),
+            barrier(
+                &self.natives.mv.resource,
+                D3D12_STATE_PIXEL_COMPUTE_READ,
+                D3D12_STATE_RENDER_TARGET,
+            ),
+            barrier(
+                &self.natives.output.resource,
+                D3D12_STATE_UNORDERED_ACCESS,
+                D3D12_STATE_COMMON,
+            ),
         ];
         self.list.resource_barrier(&restore);
         let hr = self.list.close();
@@ -1240,7 +1328,9 @@ impl FsrUpscaler {
             // The list never ran; move everything back anyway so the next
             // frame starts from the tracked states. Dropping this list's
             // barriers is fine because it never executed.
-            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+            return Err(format!(
+                "ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"
+            ));
         }
         self.queue.execute_command_lists(&[self.list.as_list()]);
 
@@ -1255,7 +1345,13 @@ impl FsrUpscaler {
     }
 
     /// Composites the upscaled frame into the composition view.
-    pub fn composite(&self, device: &wgpu::Device, queue: &wgpu::Queue, target: &wgpu::TextureView) {
-        self.composite.draw(device, queue, &self.natives.output.texture, target);
+    pub fn composite(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        target: &wgpu::TextureView,
+    ) {
+        self.composite
+            .draw(device, queue, &self.natives.output.texture, target);
     }
 }

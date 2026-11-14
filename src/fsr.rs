@@ -98,11 +98,15 @@ mod imp_stub {
             Err("unsupported".to_string())
         }
 
-        pub fn composite(&self, _device: &wgpu::Device, _queue: &wgpu::Queue, _target: &wgpu::TextureView) {
+        pub fn composite(
+            &self,
+            _device: &wgpu::Device,
+            _queue: &wgpu::Queue,
+            _target: &wgpu::TextureView,
+        ) {
         }
 
-        pub fn reset_history(&mut self) {
-        }
+        pub fn reset_history(&mut self) {}
 
         pub fn render_extent(&self) -> (u32, u32) {
             (0, 0)
@@ -111,7 +115,6 @@ mod imp_stub {
         pub fn display_extent(&self) -> (u32, u32) {
             (0, 0)
         }
-
     }
 }
 #[cfg(not(windows))]
