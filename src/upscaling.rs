@@ -1035,7 +1035,7 @@ mod tests {
             &intel_arc_a770(),
             &full_sdk(),
         );
-        assert!(support.reason().unwrap().contains("not documented"));
+        assert!(support.reason().unwrap().contains("XeSS upscaling"));
         assert!(support_framegen(
             FrameGenMethod::Xess,
             UpscaleMethod::Xess,
