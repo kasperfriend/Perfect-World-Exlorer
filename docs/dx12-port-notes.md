@@ -1,0 +1,236 @@
+# DX12 port notes — renderer map before the port
+
+Status at the time of writing: **the renderer has not been compiled or run in
+this working environment.** There is no Rust toolchain (`cargo`/`rustc`), no
+GPU, and no Windows machine here. Everything in §1–§5 was verified by reading
+the source only. See `docs/blockers.md`.
+
+Branch: `arena/4d8f7e24-perfect-world-explorer` (Arena pins one branch per
+session; the requested `feature/dx12-upscaling-framegen` branch was not
+created — the PR is opened from this branch instead). Base commit:
+`52858e844f39f839c7174421ba4d038bac627ebc` (`main`).
+
+## 0. Current graphics backend — verified answer
+
+**The backend is `wgpu` 0.19, not a native D3D11/D3D12/Vulkan renderer.**
+
+Evidence:
+
+- `Cargo.toml` depends on `wgpu = "0.19"`, `winit = "0.29"`, `egui-wgpu = "0.27"`.
+- `src/gpu.rs` (≈5,372 lines) creates `wgpu::Instance::new(wgpu::InstanceDescriptor {
+  backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()), .. })`
+  (three sites: windowed viewer, the offline preloader path, and the module
+  preview path share the same pattern) and requests an adapter with
+  `power_preference: HighPerformance` (or `WGPU_ADAPTER_NAME` override).
+- All shaders are WGSL (`wgpu::ShaderSource::Wgsl`, 47 module
+  creations across `src/`). wgpu-hal translates them (naga → HLSL →
+  DXIL/DXBC via DXC, or SPIR-V → driver for Vulkan) at runtime.
+- `src/render_scale.rs` documents the Offscreen-target + bilinear blit path.
+- CI (`.github/workflows/pr-checks.yml`) runs the GPU checks headless on Linux
+  with Mesa lavapipe (`WGPU_BACKEND=vulkan`, `VK_ICD_FILENAMES=...lvp_icd...`).
+  On Windows, `Backends::all()` lets wgpu-hal pick between DX12 and Vulkan per
+  driver. The repository contains **no D3D12, D3D11, Vulkan or OpenGL API
+  calls of its own**; `grep -i "d3d12\|d3d11\|vk::" src/` finds only prose.
+
+Consequences:
+
+1. "Porting to DX12" with zero behaviour change means: on Windows, request the
+   DX12 backend explicitly (and fail or fall back loudly rather than silently
+   rendering on Vulkan), and keep everything else. wgpu-hal's DX12 path runs
+   the existing WGSL through naga → HLSL → DXC; every previous pass then
+   executes on the D3D12 API without rewriting a single shader.
+2. A *native* pass-by-pass DX12 rewrite (own `IDXGIFactory7`, swapchain,
+   descriptor heaps, root signatures, pipeline states, command lists, fences,
+   barriers, upload path) is a multi-thousand-line change across every
+   `src/*_gpu.rs` module **and** the ~90 `src/bin/*-gpu-check` diagnostics that
+   exercise them. It cannot be compiled, run or verified in this environment
+   (no toolchain, no Windows, no GPU, no vendor SDKs downloadable), so it is
+   recorded as a blocker rather than faked. See `docs/blockers.md`.
+3. On Linux/CI the checks keep running on Vulkan (lavapipe); pinning DX12 is
+   `cfg(windows)`-gated.
+
+This branch makes the DX12 backend the explicit default on Windows (§6) and
+documents what a native port would require (§7).
+
+## 1. Process map (frame flow)
+
+```
+EventLoop → RedrawRequested
+  ├─ window resize / resolution-scale change → realloc scaled targets
+  ├─ Renderer::render(...)               (src/gpu.rs, the big frame command)
+  │    ├─ pre-pass: terrain shadow? (none; depth only)
+  │    ├─ passes into offscreen WorldTarget (render_scale extent or native)
+  │    ├─ water reflection pass (refraction/reflection targets)
+  │    ├─ water main pass, shore/edge passes
+  │    ├─ sky passes (sky_geometry/sky_gpu + weather_gpu + cloud_gpu)
+  │    └─ post chain (post_gpu: bloom, sharpen, underwater, gamma ramp)
+  ├─ RenderScale::blit                   (bilinear upscale into composition view)
+  ├─ UI pass                             (egui → composition pass, LoadOp::Load)
+  ├─ DisplayGamma (fullscreen ramp, fullscreen-only)   (display_gamma.rs)
+  └─ PresentEncode (UNORM swapchain fallback)          (present_encode.rs)
+```
+
+`render_scale` keeps the 3D world at 10–200 % of the window (default 100 %)
+and blits into the full-resolution composition view; the UI stays at native
+resolution. When the upscaling work lands, this blit is the Off path that is
+reused as the fallback if a provider cannot initialise.
+
+## 2. Passes and where they live (grep-verified)
+
+File → WGSL modules → `begin_render_pass` sites → role
+
+| File | WGSL | passes | Role |
+|---|---|---|---|
+| `src/gpu.rs` | 1 | 5 | Renderer core: world target, scenery/main composition, UI composition, minimap/full-map views, module add-on passes (Walker/Populator draw through this file's pass machinery) |
+| `src/terrain_gpu.rs` | 1 | 0* | Layered terrain material atlas, masks, day/night lightmaps, far terrain geometry; pipelines shared |
+| `src/sky_gpu.rs` | 1 | 0* | Sky dome/panorama, sun/moon discs, seam handling |
+| `src/model_receiver_gpu.rs` | 1 | 0* | Scene-light receivers for animated EC models |
+| `src/water_gpu.rs` | 2 | 3 | Water surface shading, reflections/refraction targets, shoreline waves |
+| `src/simple_water_gpu.rs` | 1 | 1 | Fallback/simple water surface (terrain-only depth) |
+| `src/shore_gpu.rs` | 1 | 2 | Shoreline edge alpha, foam |
+| `src/weather_gpu.rs` | 1 | 1 | Weather particles (rain/snow) |
+| `src/cloud_gpu.rs` | 2 | 1 | Cloud surface (`.cld`) |
+| `src/far_trees_gpu.rs` | 2 | 0* | SpeedTree LOD compute + indirect draw, impostor atlas |
+| `src/grass_instances.rs` | 1 | 0* | Grass instance compute |
+| `src/gfx_effect_gpu.rs` | 1 | 1 | Authored ECWLD/ECM world effects (quads) |
+| `src/gfx_decal_gpu.rs` | 1 | 1 | Static decals |
+| `src/post_gpu.rs` | 1 | 6 | Bloom (mono/low-glow modes), sharpen, underwater distortion, glow chain |
+| `src/display_gamma.rs` | 1 | 1 | Whole-frame client gamma ramp (fullscreen only) |
+| `src/present_encode.rs` | 1 | 1 | UNORM-swapchain encode fallback |
+| `src/render_scale.rs` | 1 | 1 | Scaled world target + bilinear upscale blit |
+| `src/effect_preview.rs` | 1 | 1 | Headless effect-preview harness |
+| `src/model_draw_gpu.rs` / `model_texture_gpu.rs` / `model_receiver_gpu.rs` | 0 | pipelines | Static-model draw validation, shared model textures/pipelines |
+| `src/world_models_gpu.rs` | (via gpu.rs uniform path) | in gpu.rs | EC world models, overlays, Walker/Populator hookup |
+| `src/modules/walker/mod.rs`, `src/modules/populator/mod.rs` | 0 | 1 each | Add-on draw entry points (module passes) |
+| `src/modules/librarian/preview3d.rs` | 0 | 2 | Character-designer 3D preview |
+
+\* passes are recorded in the shared command encoder in `gpu.rs`.
+
+Pass-count totals (grep `begin_render_pass`): ≈33 sites. WGSL modules ≈47
+(production + diagnostics). Every shipped pass is one of the above; there is no
+pass in the source that this table does not cover.
+
+## 3. Resources held across frames
+
+- **World target** (scaled or native): sRGB + linear-alias view; depth
+  (`Depth32Float`-class target, checked at `resize_world_targets`); shared by
+  the terrain/scenery/model/water passes for occlusion.
+- **Water reflection target** (rendered-water view of the world from the
+  mirrored camera), **refraction target** (copy of the composed scene colour +
+  depth used for shoreline/underwater distortion), **water edge alpha** target.
+- **Post chain**: scene-chain intermediate, bloom mips/luminance chain,
+  optional underwater distortion target (`post_gpu.rs`).
+- **Scaled target** (`render_scale`): sRGB texture at the scaled extent,
+  bilinear-blitted into the native composition view; UI loads with
+  `LoadOp::Load` and stays native.
+- **Terrain**: BC1/BC2 material atlas (4096²), layer masks, lightmaps, far
+  geometry; residency driven by `terrain_residency.rs` (paged) or
+  `Resident` (all-to-VRAM). `cache/terrain-v1/` XOR-plane disk cache; hot-set
+  defaults to 32 MiB (`PW_TERRAIN_RAM_MIB`, 1–256 MiB). The README documents a
+  "2 MiB hot set" — that figure is historical (the README predates the
+  32 MiB default); the operative value in `src/terrain_store.rs` is
+  `DEFAULT_BUDGET = 32 MiB`. Nothing about the cache format or hot-set
+  behaviour is changed by this work.
+- **Model textures**: shared BC pages, whole-world ≈5.4 GiB sources.
+- **Uniform buffer** (`gpu.rs::Uniform`): one 4×4 matrix, direction, clip and
+  bounds vectors, regional lighting, 80 grass-history rows, fog range/colour.
+  All passes read it through bind-group 0/1; none of it is per-draw.
+
+## 4. Settings keys (persisted, `view_settings.rs` — unchanged by this work unless listed)
+
+Version 1 text file (`%LOCALAPPDATA%\PerfectWorldViewer\viewer-settings.txt`).
+Keys parsed today: `radius, terrain_cutoff, tree_lod_scale, scenery_quality,
+camera_speed, boost, sensitivity, far, time_of_day, time_pass_enabled,
+time_pass_speed, all_to_vram, whole_world, water_reflections, world_effects,
+atmospheric_fog, bloom, bloom_strength, bloom_mode, bloom_tint,
+bloom_brightness_fade, bloom_opacity_fade, client_gamma, gamma_setting,
+terrain_lightmaps, model_backface_culling, music_enabled, music_volume,
+ambience_enabled, sound_volume, effects_enabled, effects_volume, fullscreen,
+show_zone_entry, show_minimap, minimap_range, tree_wind_strength,
+client_tree_wind_preview, regional_tree_lighting, grass_distance_fade,
+grass_wind_enabled, grass_wind_amplitude, streamed_regions, area_grass_lightmaps,
+vegetation_authored_mips, celestial_discs, celestial_brightness,
+ignore_celestial_flags, cloud_detail, sharpen, resolution_scale, world_map_style,
+minimap_style, minimap_shape, weather_override, sky_override, effect_shaft,
+effect_distance, logging_mask, logging_dir`.
+
+New keys added by this work (§6): `upscaling`, `upscale_quality`,
+`frame_generation`, `upscale_sdk_dir`. Defaults keep behaviour identical; an
+old file without them decodes to the same values as before plus the new
+defaults (see the migration test in `view_settings.rs`).
+
+## 5. Keep-unchanged invariants (checked, not aspirational)
+
+- Terrain cache format `cache/terrain-v1`: untouched (`src/terrain_store.rs`
+  not modified by this work).
+- Settings keys and meanings: untouched; only added keys.
+- Module IDs (`walker`, `populator`), `Modules/…/module.ini` layout,
+  `PW_MODULES_DIR` override: untouched.
+- Release ZIP structure (`Perfect World Explorer/` top folder, exe + `Modules/`
+  + `SHA256SUMS.txt`): preserved; `THIRD_PARTY_NOTICES.md` is added to it.
+- The 2 MiB-era hot-set behaviour — the code today pages a 32 MiB decoded
+  budget; this work does not change either number.
+- Known-approximate systems stay approximate: water, sky, terrain, fog,
+  animated-EC coverage. No "fixes" smuggled in with the renderer work.
+
+## 6. What this branch changes
+
+1. **DX12 on Windows by default.** `gpu.rs`'s three instance-creation sites
+   request `Backends::DX12` on Windows (still honouring `WGPU_BACKEND` for
+   diagnostics, falling back to `Backends::all()` if DX12 adapter creation
+   fails, with a printed warning). Non-Windows unchanged. `adapter_info` is
+   retained so the Graphics tab can state the real backend/GPU/driver.
+   This is *not* a native DX12 rewrite — see §0 and `docs/blockers.md`.
+2. **Settings → Graphics → Upscaling** (`Off` / DLSS Super Resolution /
+   FSR / XeSS) and **Frame generation** (`Off` / DLSS Frame Generation /
+   FSR Frame Generation / XeSS Frame Generation), independent selectors,
+   disabled options with a visible reason, Resolution scale slider active only
+   when Upscaling is Off. New module `src/upscaling.rs` holds the state
+   machine, jitter sequence, per-provider recommended internal resolutions and
+   the pairing table; SDK discovery lives in `src/upscale_sdk.rs` probing a
+   user-chosen directory (Settings → `upscale_sdk_dir` or `PW_UPSCALER_SDK_DIR`
+   or `<exe>\sdk\`). No SDK binaries are shipped or committed.
+3. **Diagnostics**: `src/bin/dx12-upscale-check.rs`,
+   `src/bin/dx12-framegen-check.rs` print the support/pairing matrix and the
+   SDK probe results; they need no client and no GPU (they degrade to a
+   report with exit 0 when no adapter or SDK is present).
+4. **Packaging/notices**: `THIRD_PARTY_NOTICES.md`, README license section,
+   `tools/package-windows.ps1` (notices staged, optional MIT-SDK allowlist via
+   `-SdkDirectory`, SHA256SUMS regenerated over the final list, NVIDIA proprietary
+   DLLs never staged).
+
+## 7. What a native DX12 port would require (not done — blocked)
+
+- Device/swapchain: `ID3D12Device`, flip-model `IDXGISwapChain3`
+  (`DXGI_SWAP_EFFECT_FLIP_DISCARD`), `R8G8B8A8_UNORM` + sRGB variant,
+  `ALLOW_TEARING` for borderless.
+- Descriptor heaps: CBV/SRV/UAV + DSV + sampler budgets from the pass map
+  above; per-frame bindless table if the terrain/model atlases stay resident.
+- Root signatures: one per pass family (terrain, scenery, water, sky, post,
+  UI); the `Uniform` struct maps to a single root CBV.
+- PSOs: ~one per (pass, shader entry) above; depth-stencil variants for the
+  water/shore edge passes.
+- Command lists/queues + `ID3D12Fence` with per-frame command allocators;
+  resource barriers for the reflection/refraction reads (depth → SRV),
+  render_scale target transition and post-chain ping-pong.
+- Upload path: `UploadHeap` textures or `WriteToSubresource` for the BC atlas
+  pages; `terrain_upload.rs` logic ports unchanged at the CPU level.
+- Shaders: the 47 WGSL modules → HLSL source compiled with DXC to DXIL
+  (shader model 6.0+) — or keep naga's WGSL→HLSL output checked in as build
+  input. Semantics to preserve: sRGB write-encode boundaries
+  (`present_encode`), the single gamma ramp, fog applied per pass,
+  `grass_history` ring layout, terrain lightmap UV conventions.
+- Verification: every `src/bin/*-gpu-check.rs` rerun on a Windows GPU
+  (water-pass, simple-water, post, display-gamma, terrain-*, sky-*, tree-*,
+  grass-*, model-*, scenery-*), plus the lavapipe CI suite on Vulkan.
+- Upscaler prerequisites the native port must add for real DLSS/FSR/XeSS
+  integration: a motion-vector target (RG16Float half-float with the
+  same projection convention), depth in the SDK-required plane (DLSS: non-opaque
+  reversed-Z optional; FSR2/XeSS: standard D32_FLOAT fine), Halton jitter in the
+  projection for the chosen provider sequence, exposure (DLSS requires it —
+  the viewer currently has no exposure value; fixed 1.0 is legal input),
+  depth-in-meter ratio and near/far matching the camera, UI excluded from
+  interpolation (FG), and present pacing that keeps the UI input rate.
+
+None of the above was attempted beyond §6, for the reasons in
+`docs/blockers.md`.
