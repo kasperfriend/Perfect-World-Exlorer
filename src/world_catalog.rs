@@ -727,8 +727,11 @@ mod tests {
         assert_eq!(catalog.maps.len(), 2);
         assert_eq!(catalog.maps[0].id, "world");
         assert_eq!(catalog.maps[0].display_name, "Perfect World — Mainland");
+        assert_eq!(catalog.maps[0].instance_ids, vec![1]);
         assert_eq!(catalog.maps[1].id, "a01");
-        assert!(catalog.maps[1].instance_ids.is_empty());
+        // Without configs.pck, the client's aNN folder naming still gives the
+        // instance's native ID rather than leaving destination filtering blind.
+        assert_eq!(catalog.maps[1].instance_ids, vec![101]);
         assert!(catalog.warning.is_some());
         let resolved = resolve(&root, Some("a01")).unwrap();
         assert_eq!(resolved.id, "a01");
