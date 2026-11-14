@@ -954,7 +954,7 @@ mod tests {
         assert_eq!(fsr.upscaling, Upscaling::Fsr1);
         assert_eq!(fsr.fsr1_sharpness, 0.75);
         assert_eq!(ViewSettings::decode(&fsr.encode()), fsr);
-        for invalid in ["DLSS", "FSR3", "XeSS", "fsr1", ""] {
+        for invalid in ["DLSS", "FSR2", "FSR3", "FSR4.1", "XeSS", "fsr1", ""] {
             assert_eq!(
                 ViewSettings::decode(&format!("upscaling={invalid}")).upscaling,
                 Upscaling::Bilinear

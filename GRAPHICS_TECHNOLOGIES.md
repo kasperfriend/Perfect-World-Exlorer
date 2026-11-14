@@ -9,15 +9,20 @@ scaling under a vendor name.
 | Resolution scale + bilinear | Yes; default | Existing 10–200% world render and bilinear present. UI, gamma and present encoding stay native. |
 | AMD FSR **1** (spatial) | Yes; opt-in | WGSL implementation of AMD's MIT-licensed EASU then RCAS, on the completed world image at 50–99% scale (up to 4x area). Outside that range, the existing bilinear pass runs instead. |
 | NVIDIA DLSS SR / DLAA, FG / MFG, RR and other Streamline plugins | **No** | Disabled; no NVIDIA plugin loaded or redistributed. RR also needs a ray-traced input this viewer does not produce. |
-| AMD FSR 2/3/4 SDK temporal/ML upscaling, FG, Anti-Lag and other SDK techniques | **No** | Disabled; not the same as this implementation of FSR 1. No AMD SDK components loaded or redistributed. |
+| AMD FSR 2, FSR 3, FSR 4.1 SDK temporal/ML upscaling; FG, Anti-Lag and other SDK techniques | **No** | Each upscaler is listed separately but disabled. Not the same as FSR 1; no AMD SDK components loaded or redistributed. |
 | Intel XeSS SR, FG, XeLL | **No** | Disabled; no Intel SDK component loaded or redistributed. |
 
-The Graphics tab places **Upscaling** next to Resolution scale and shows a
-separate **Frame Generation** section. The FG entries remain disabled. There is
-no frame interpolation, no generated frame in the swapchain, and no support yet
-for combinations such as DLSS upscaling with AMD frame generation. Their
-absence is explicit in the UI and persisted settings (unknown upscaler tokens
-fall back to the legacy bilinear choice). Merely adding a setting, identifying a
+The Graphics tab lists **Original (bilinear, default), DLSS, FSR1, FSR2,
+FSR3, FSR4.1, XeSS** in exactly that order under Upscaling. Frame Generation
+has its **own** list: **Off, DLSS, FSR, XeFG (Intel XeSS)**. FSR1 is greyed
+out when the selected render/output extents are outside its supported range;
+all other vendor entries are greyed out because their SDKs are **not
+integrated**, even on hardware that may support them. Disabled entries explain
+why on hover. GPU compatibility for these SDKs cannot be verified until SDK
+query and native backend integration exist. There is no frame interpolation,
+no generated frame in the swapchain, and no support yet for combinations such
+as DLSS upscaling with AMD frame generation. Unknown upscaler settings tokens
+fall back to the legacy bilinear choice. Merely adding a setting, identifying a
 GPU, or installing a vendor DLL would not implement the technology.
 
 ## Why further work is required
