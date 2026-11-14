@@ -266,6 +266,7 @@ jobs:
           }
           run_check display-gamma-gpu-check
           run_check post-gpu-check
+          run_check fsr1-gpu-check
           run_check bloom-gpu-check
           run_check bmd-baked-gpu-check
           run_check bmd-sided-gpu-check
