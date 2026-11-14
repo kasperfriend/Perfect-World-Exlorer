@@ -234,10 +234,13 @@ pub struct Objects {
     models: HashMap<String, bmd::Model>,
     cache: TextureCache,
     resolver: TextureResolver,
-    litfile: File,
-    texfile: File,
+    litfile: Option<File>,
+    texfile: Option<File>,
     litentries: HashMap<String, pck::Entry>,
     texentries: HashMap<String, pck::Entry>,
+    /// Optional scenery dependencies absent or unusable in this client/map.
+    /// Keep a negative cache so a missing placement is not retried every frame.
+    unavailable_models: HashSet<String>,
     unresolved: Vec<UnresolvedTexture>,
     unresolved_seen: HashSet<String>,
 }
@@ -261,6 +264,34 @@ pub fn set_unbounded_textures(on: bool) {
 pub fn unbounded_textures() -> bool {
     UNBOUNDED_TEXTURES.load(std::sync::atomic::Ordering::Relaxed)
 }
+fn open_optional_archive(path: &Path) -> (Option<File>, HashMap<String, pck::Entry>) {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!(
+                "Optional scenery archive {} unavailable: {error}",
+                path.display()
+            );
+            return (None, HashMap::new());
+        }
+    };
+    match pck::directory(&mut file) {
+        Ok(entries) => (
+            Some(file),
+            entries
+                .into_iter()
+                .map(|entry| (entry.name.to_lowercase(), entry))
+                .collect(),
+        ),
+        Err(error) => {
+            eprintln!(
+                "Optional scenery archive {} could not be read: {error}",
+                path.display()
+            );
+            (None, HashMap::new())
+        }
+    }
+}
 fn tex_budget_bytes() -> usize {
     if unbounded_textures() {
         // Not literally infinite: the LRU comparison adds bytes to this, so it
@@ -275,16 +306,8 @@ fn tex_budget_bytes() -> usize {
 }
 impl Objects {
     pub fn open(element: &Path, ornaments: Vec<Ornament>) -> Result<Self, String> {
-        let mut litfile = File::open(element.join("litmodels.pck")).map_err(|e| e.to_string())?;
-        let mut texfile = File::open(element.join("building.pck")).map_err(|e| e.to_string())?;
-        let litentries = pck::directory(&mut litfile)?
-            .into_iter()
-            .map(|e| (e.name.to_lowercase(), e))
-            .collect::<HashMap<_, _>>();
-        let texentries = pck::directory(&mut texfile)?
-            .into_iter()
-            .map(|e| (e.name.to_lowercase(), e))
-            .collect::<HashMap<_, _>>();
+        let (litfile, litentries) = open_optional_archive(&element.join("litmodels.pck"));
+        let (texfile, texentries) = open_optional_archive(&element.join("building.pck"));
         // Mount order matches the open order above. The retail mount order
         // of the two packages is not recoverable from the executable alone,
         // but it is also unobservable in this corpus: the census found 0
@@ -312,6 +335,7 @@ impl Objects {
             texfile,
             litentries,
             texentries,
+            unavailable_models: HashSet::new(),
             unresolved: Vec::new(),
             unresolved_seen: HashSet::new(),
         })
@@ -333,30 +357,57 @@ impl Objects {
     }
     /// Loads a small explicit batch for the independent world preload worker.
     pub fn load_ids(&mut self, ids: &[usize]) -> Result<(), String> {
-        let active: HashSet<String> = ids
-            .iter()
-            .map(|&i| format!("litmodels/world/{}", self.ornaments[i].path.to_lowercase()))
-            .collect();
+        let mut active = HashSet::with_capacity(ids.len());
+        for &i in ids {
+            let Some(ornament) = self.ornaments.get(i) else {
+                return Err(format!("invalid ornament index {i}"));
+            };
+            active.insert(format!("litmodels/world/{}", ornament.path.to_lowercase()));
+        }
         self.models.retain(|name, _| active.contains(name));
         self.cache.begin_batch();
         for &i in ids {
-            let name = format!("litmodels/world/{}", self.ornaments[i].path.to_lowercase());
+            let Some(ornament) = self.ornaments.get(i) else {
+                return Err(format!("invalid ornament index {i}"));
+            };
+            let name = format!("litmodels/world/{}", ornament.path.to_lowercase());
+            if self.unavailable_models.contains(&name) {
+                continue;
+            }
             if !self.models.contains_key(&name) {
-                let entry = self
-                    .litentries
-                    .get(&name)
-                    .ok_or_else(|| format!("missing model {name}"))?;
-                let data = pck::read_entry(&mut self.litfile, entry)?;
-                let model = bmd::Model::parse(&data).map_err(|e| format!("{name}: {e}"))?;
-                self.models.insert(name.clone(), model);
+                let loaded = (|| -> Result<bmd::Model, String> {
+                    let entry = self
+                        .litentries
+                        .get(&name)
+                        .ok_or_else(|| format!("missing model {name}"))?;
+                    let file = self
+                        .litfile
+                        .as_mut()
+                        .ok_or_else(|| "litmodels.pck unavailable".to_string())?;
+                    let data = pck::read_entry(file, entry)?;
+                    bmd::Model::parse(&data).map_err(|e| format!("{name}: {e}"))
+                })();
+                match loaded {
+                    Ok(model) => {
+                        self.models.insert(name.clone(), model);
+                    }
+                    Err(error) => {
+                        self.skip_model(&name, &error);
+                        continue;
+                    }
+                }
             }
             let references: Vec<String> = self.models[&name]
                 .meshes
                 .iter()
                 .map(|m| m.texture.clone())
                 .collect();
+            let mut failure = None;
             for raw in references {
-                self.load_texture_reference(&raw)?;
+                if let Err(error) = self.load_texture_reference(&raw) {
+                    failure = Some(format!("texture {raw}: {error}"));
+                    break;
+                }
                 // Derived normal-map reference (A3DLitMesh::LoadTexture step
                 // 4). The client tolerates every failure here (a missing file
                 // inside A3DTexture::Load returns TRUE), and this renderer
@@ -376,8 +427,17 @@ impl Objects {
                     }
                 }
             }
+            if let Some(error) = failure {
+                self.models.remove(&name);
+                self.skip_model(&name, &error);
+            }
         }
         Ok(())
+    }
+    fn skip_model(&mut self, name: &str, reason: &str) {
+        if self.unavailable_models.insert(name.to_string()) {
+            eprintln!("Skipping unavailable scenery model {name}: {reason}");
+        }
     }
     fn load_texture_reference(&mut self, raw: &str) -> Result<(), String> {
         let resolution = self.resolver.resolve(raw);
@@ -478,13 +538,21 @@ impl Objects {
                 .litentries
                 .get(key)
                 .ok_or_else(|| format!("resolver/index mismatch for {key}"))?;
-            pck::read_entry(&mut self.litfile, entry)?
+            let file = self
+                .litfile
+                .as_mut()
+                .ok_or_else(|| "litmodels.pck unavailable".to_string())?;
+            pck::read_entry(file, entry)?
         } else {
             let entry = self
                 .texentries
                 .get(key)
                 .ok_or_else(|| format!("resolver/index mismatch for {key}"))?;
-            pck::read_entry(&mut self.texfile, entry)?
+            let file = self
+                .texfile
+                .as_mut()
+                .ok_or_else(|| "building.pck unavailable".to_string())?;
+            pck::read_entry(file, entry)?
         };
         self.decode_and_store(key, &data)
     }
@@ -538,6 +606,9 @@ impl Objects {
             self.ornaments.get(idx)?.path.to_lowercase()
         ))
     }
+    pub fn unavailable_model_count(&self) -> usize {
+        self.unavailable_models.len()
+    }
     pub fn texture(&self, path: &str) -> Option<&Texture> {
         self.cache.get(&normalize(path))
     }
@@ -562,6 +633,23 @@ impl Objects {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn write_empty_pck(path: &std::path::Path) {
+        // Valid v2 package with an empty entry table; enough to test missing
+        // optional object members without shipping any client corpus.
+        fn put(bytes: &mut [u8], offset: usize, value: u32) {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = vec![0u8; 292];
+        put(&mut bytes, 0, 0x4dca23ef);
+        put(&mut bytes, 4, 292);
+        put(&mut bytes, 8, 0x56a089b7);
+        put(&mut bytes, 12, 0xfdfdfeee);
+        put(&mut bytes, 20, 0xa8937462);
+        put(&mut bytes, 280, 0xf00dbeef);
+        put(&mut bytes, 284, 0);
+        put(&mut bytes, 288, 0x20002);
+        std::fs::write(path, bytes).unwrap();
+    }
     fn tex(fill: u8, side: usize) -> Texture {
         Texture {
             width: side,
@@ -569,6 +657,73 @@ mod tests {
             rgba: vec![fill; side * side * 4],
         }
     }
+    #[test]
+    fn missing_map_specific_litmodel_is_skipped_and_negative_cached() {
+        let root = std::env::temp_dir().join(format!(
+            "pw-missing-litmodel-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        write_empty_pck(&root.join("litmodels.pck"));
+        write_empty_pck(&root.join("building.pck"));
+        let mut objects = Objects::open(
+            &root,
+            vec![Ornament {
+                export_id: 77,
+                offset: 0,
+                position: [0.; 3],
+                direction: [0., 0., 1.],
+                up: [0., 1., 0.],
+                extra: 0,
+                path: "1/litrmodel_1399.bmd".into(),
+            }],
+        )
+        .unwrap();
+        objects.load_ids(&[0]).unwrap();
+        assert!(objects.get(0).is_none());
+        assert_eq!(objects.unavailable_model_count(), 1);
+        // A later visible-frame batch doesn't turn the same absent optional
+        // model back into a fatal error or repeat the archive lookup.
+        objects.load_ids(&[0]).unwrap();
+        assert!(objects.get(0).is_none());
+        assert_eq!(objects.unavailable_model_count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_optional_scenery_archives_do_not_block_map_objects() {
+        let root = std::env::temp_dir().join(format!(
+            "pw-missing-object-archives-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut objects = Objects::open(
+            &root,
+            vec![Ornament {
+                export_id: 78,
+                offset: 0,
+                position: [0.; 3],
+                direction: [0., 0., 1.],
+                up: [0., 1., 0.],
+                extra: 0,
+                path: "1/litrmodel_1399.bmd".into(),
+            }],
+        )
+        .unwrap();
+        objects.load_ids(&[0]).unwrap();
+        assert!(objects.get(0).is_none());
+        assert_eq!(objects.unavailable_model_count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn dedup_stores_identical_content_once_under_alias_names() {
         let mut cache = TextureCache::new(64 << 20);

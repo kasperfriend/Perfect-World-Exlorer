@@ -379,8 +379,11 @@ fn render(
     );
     draw(t, cam, frame, depth);
     for id in ornament_ids {
+        // Individual map placements may reference optional litmodels absent from
+        // this client archive. Objects::load_ids logs and negative-caches them;
+        // omit only that prop rather than failing the whole map render.
         let Some(model) = t.objects.get(id) else {
-            return Err(format!("missing resident scenery model {id}"));
+            continue;
         };
         for mesh in &model.meshes {
             let Some(texture) = t.objects.texture(&mesh.texture) else {

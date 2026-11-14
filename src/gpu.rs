@@ -886,13 +886,14 @@ fn build(
     t.objects.load_ids(&ornament_ids)?;
     let tree_lod_scale = lod_scale(detail.scenery_quality, Class::Trees);
     eprintln!(
-        "Scenery residency: quality {} ({} native classes, tree LOD {:.3}, ornament distance {:.1}), {} resident, {} ornaments retained, {} loads, {} evictions, {} distance culls",
+        "Scenery residency: quality {} ({} native classes, tree LOD {:.3}, ornament distance {:.1}), {} resident, {} ornaments retained, {} unavailable model assets, {} loads, {} evictions, {} distance culls",
         detail.scenery_quality,
         Class::ALL.len(),
         tree_lod_scale,
         crate::scenery_visibility::ornament_distance(detail.scenery_quality),
         nearby.len(),
         ornament_ids.len(),
+        t.objects.unavailable_model_count(),
         t.scenery_residency.loads,
         t.scenery_residency.evictions,
         t.scenery_residency.distance_culls
