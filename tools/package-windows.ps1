@@ -34,6 +34,17 @@ Copy-Item -LiteralPath $executablePath -Destination $shippedExecutable
 $shippedModules = Join-Path $packageRoot 'Modules'
 Copy-Item -LiteralPath $modulesPath -Destination $shippedModules -Recurse
 
+# Both the project's GPL and the AMD FSR 1 attribution must accompany binary
+# distributions. The latter does not relicense the rest of the project.
+$noticePaths = @('LICENSE', 'THIRD_PARTY_NOTICES.md')
+foreach ($notice in $noticePaths) {
+    $source = Join-Path (Join-Path $PSScriptRoot '..') $notice
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Distribution notice missing: $source"
+    }
+    Copy-Item -LiteralPath $source -Destination (Join-Path $packageRoot $notice)
+}
+
 $walkerManifest = Join-Path $shippedModules 'Walker/module.ini'
 if (-not (Test-Path -LiteralPath $walkerManifest -PathType Leaf)) {
     throw "Staging did not produce Modules/Walker/module.ini in $packageRoot"
@@ -43,6 +54,8 @@ if (-not (Test-Path -LiteralPath $walkerManifest -PathType Leaf)) {
 # are inputs to this script, so only the viewer and installed module packages
 # can enter the distribution.
 $files = @((Get-Item -LiteralPath $shippedExecutable)) +
+    @((Get-Item -LiteralPath (Join-Path $packageRoot 'LICENSE'))) +
+    @((Get-Item -LiteralPath (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md'))) +
     @((Get-ChildItem -LiteralPath $shippedModules -Recurse -File | Sort-Object FullName))
 $checksumLines = @(
     foreach ($file in $files) {
@@ -77,6 +90,8 @@ if (-not [string]::IsNullOrWhiteSpace($ArchivePath)) {
             'Perfect World Explorer/Perfect-World-Explorer.exe',
             'Perfect World Explorer/Modules/Walker/module.ini',
             'Perfect World Explorer/Modules/Populator/module.ini',
+            'Perfect World Explorer/LICENSE',
+            'Perfect World Explorer/THIRD_PARTY_NOTICES.md',
             'Perfect World Explorer/SHA256SUMS.txt'
         )) {
             if ($entries -notcontains $required) {

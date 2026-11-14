@@ -1,6 +1,7 @@
 //! Persisted viewer controls; malformed values fall back safely.
 use crate::client_weather::WeatherOverride;
 use crate::sky_transition::SkyOverride;
+use crate::upscaling::Upscaling;
 
 #[path = "post_plan.rs"]
 mod post_plan;
@@ -205,6 +206,11 @@ pub struct ViewSettings {
     /// 100 is native; the Graphics tab exposes 10 (fast/blurry) to 200
     /// (supersampled). UI and presentation always stay at native resolution.
     pub resolution_scale: f32,
+    /// Bilinear (legacy default) or the spatial AMD FSR 1 EASU + RCAS path.
+    /// Temporal SDK upscalers are deliberately not offered as working modes.
+    pub upscaling: Upscaling,
+    /// AMD RCAS sharpness in stops: 0 is strongest and 2 is weakest.
+    pub fsr1_sharpness: f32,
     /// World tab: force one precipitation effect instead of the area flags.
     pub weather_override: WeatherOverride,
     /// World tab: pin one `sky.lst` row instead of the day/night ladder.
@@ -279,6 +285,8 @@ impl Default for ViewSettings {
             minimap_style: MapStyle::Realistic,
             minimap_shape: MinimapShape::Square,
             resolution_scale: 100.,
+            upscaling: Upscaling::Bilinear,
+            fsr1_sharpness: 0.2,
             // Both overrides default to the client's own behaviour; the World
             // tab offers them only so the recovered sets and particle
             // constants can be inspected anywhere.
@@ -386,6 +394,12 @@ impl ViewSettings {
                 "ambience_enabled" => flag!(s.ambience_enabled),
                 "minimap_range" => number!(s.minimap_range, 100., 600.),
                 "resolution_scale" => number!(s.resolution_scale, 10., 200.),
+                "upscaling" => {
+                    if let Some(mode) = Upscaling::parse(v) {
+                        s.upscaling = mode;
+                    }
+                }
+                "fsr1_sharpness" => number!(s.fsr1_sharpness, 0., 2.),
                 "regional_tree_lighting" => flag!(s.regional_tree_lighting),
                 "streamed_regions" => flag!(s.streamed_regions),
                 "grass_distance_fade" => flag!(s.grass_distance_fade),
@@ -460,11 +474,11 @@ impl ViewSettings {
             "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\ntime_pass_enabled={}\ntime_pass_speed={}\nall_to_vram={}\n",
             "whole_world={}\nwater_reflections={}\nworld_effects={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\neffect_shaft={}\neffect_distance={}\nlogging_mask={}\nlogging_dir={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nupscaling={}\nfsr1_sharpness={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\neffect_shaft={}\neffect_distance={}\nlogging_mask={}\nlogging_dir={}\n"),
             self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,self.time_pass_enabled,self.time_pass_speed,self.all_to_vram,
             self.whole_world,self.water_reflections,self.world_effects,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.celestial_brightness,self.ignore_celestial_flags,self.cloud_detail,self.sharpen,self.resolution_scale,
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.celestial_brightness,self.ignore_celestial_flags,self.cloud_detail,self.sharpen,self.resolution_scale,self.upscaling.token(),self.fsr1_sharpness,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label(),
             self.weather_override.token(),self.sky_override.token(),self.effect_shaft.token(),self.effect_distance,self.logging_mask,self.logging_dir)
@@ -931,6 +945,29 @@ mod tests {
             100.
         );
     }
+    #[test]
+    fn spatial_upscaling_is_opt_in_persisted_and_not_a_fake_sdk_choice() {
+        let original = ViewSettings::decode("resolution_scale=50");
+        assert_eq!(original.upscaling, Upscaling::Bilinear);
+        assert_eq!(original.fsr1_sharpness, 0.2);
+        let fsr = ViewSettings::decode("resolution_scale=50\nupscaling=FSR1\nfsr1_sharpness=0.75");
+        assert_eq!(fsr.upscaling, Upscaling::Fsr1);
+        assert_eq!(fsr.fsr1_sharpness, 0.75);
+        assert_eq!(ViewSettings::decode(&fsr.encode()), fsr);
+        for invalid in ["DLSS", "FSR3", "XeSS", "fsr1", ""] {
+            assert_eq!(
+                ViewSettings::decode(&format!("upscaling={invalid}")).upscaling,
+                Upscaling::Bilinear
+            );
+        }
+        for (s, expected) in [("-1", 0.), ("4", 2.), ("NaN", 0.2), ("unknown", 0.2)] {
+            assert_eq!(
+                ViewSettings::decode(&format!("fsr1_sharpness={s}")).fsr1_sharpness,
+                expected
+            );
+        }
+    }
+
     #[test]
     fn every_independent_post_effect_activates_the_renderer_chain() {
         // bloom, sharpen, underwater and the scene-chain ramp each allocate the
