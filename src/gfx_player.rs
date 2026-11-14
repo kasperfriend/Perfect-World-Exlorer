@@ -673,7 +673,6 @@ struct ParticleState {
     /// Sub-integer carry of the colour controller, one per channel
     /// (ctrl+0x24..0x30).
     color_remainder: [f32; 4],
-    seed: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -2871,17 +2870,20 @@ fn apply_controls(
                         //     ... clamp c+dc to [0, 255] ...
                         //     m_color = (m_clBase & cMask) + A3DCOLORRGBA(0,0,0,c);
                         //
-                        // The RGB bytes stay `m_clBase`'s and only the alpha
+                        // The RGB bytes stay the base's and only the alpha
                         // byte takes the noise, truncated to integer bytes by
-                        // the `(int)` cast. The base is the authored
-                        // `BaseColor` with no keypoint-colour substitution —
-                        // the class has no `Update` override (the base
-                        // `Update` is empty, a3dgfxkeypoint.h:518) and
-                        // `Process` reads `m_clBase` alone. The amplitude is
-                        // already inside the sample (the perlin's `Init` took
-                        // `m_fAmplitude`), so `dc` is the noise scaled to
-                        // bytes.
-                        let base = base_color.unwrap_or(0xff_ff_ff_ff);
+                        // the `(int)` cast. The amplitude is already inside
+                        // the sample (the perlin's `Init` took `m_fAmplitude`),
+                        // so `dc` is the noise scaled to bytes. `BaseColor: -1`
+                        // (all bits set) is the format's "no base authored"
+                        // sentinel (`ColorMin/Max: -1` carry it too): the
+                        // flicker runs over the keypoint colour — the client's
+                        // white-base `m_color` multiplies the keypoint colour
+                        // at draw time.
+                        let base = match base_color {
+                            Some(0xff_ff_ff_ff) | None => sampled.color,
+                            Some(color) => *color,
+                        };
                         let dc = (*amplitude * signed).trunc() as i32;
                         let alpha = (((base >> 24) & 0xff) as i32 + dc).clamp(0, 255) as u32;
                         state.color_override = Some((base & 0x00ff_ffff) | (alpha << 24));
@@ -6059,7 +6061,6 @@ fn spawn(
         scale,
         scale_noise: 0.,
         color_remainder: [0.; 4],
-        seed: rng.next_u32(),
     }
 }
 
@@ -6615,14 +6616,29 @@ fn integrate(
                 // Same sinks as the keypoint-set pass (the affector classes are
                 // the same controllers over the particle node): 109 writes
                 // `m_fScaleNoise` and the read adds it to the scale; 107 is
-                // colour noise — the authored `Amplitude` is the per-channel
-                // flicker depth in bytes over the base colour, not a distance
-                // in centimetres; 112 holds the generator and does nothing.
+                // colour noise — the alpha byte's flicker depth in bytes over
+                // the base colour (CtrlColorNoise, A3DGFXKeyPoint.cpp:1088);
+                // 112 holds the generator and does nothing. The walk is the
+                // controller's one curve over the keypoint clock — the client's
+                // `m_PerlinNoise` is a member of the controller instance
+                // (`Init` on Resume, a3dgfxkeypoint.h:1690), not of the
+                // particle — so every particle samples the same walk at its
+                // own age. The pre-fix `rng.next_u32()`/`state.seed` draws made
+                // it a fresh random curve per frame / per particle: the
+                // reported "flicker as if played too fast".
                 if matches!(kind, NoiseKind::Base) {
                     continue;
                 }
                 let sample = fbm(
-                    state.seed,
+                    noise_seed(
+                        *kind,
+                        *amplitude,
+                        *wave_length,
+                        *persistence,
+                        *octaves,
+                        *buffer_length,
+                        *base_color,
+                    ),
                     // Milliseconds, the keypoint-clock table convention
                     // (`m_fTimeSpan * 1000`).
                     state.age * 1000.,
@@ -6637,21 +6653,20 @@ fn integrate(
                         state.scale_noise = *amplitude * signed;
                     }
                     NoiseKind::Color => {
-                        // `BaseColor: -1` (all bits set) means "no base
-                        // authored" in this format (`ColorMin/Max: -1` carry
-                        // the same sentinel), so the flicker is over the
-                        // particle's own colour.
+                        // `A3DGFXCtrlColorNoise::Process`
+                        // (A3DGFXKeyPoint.cpp:1088-1105) — same law as the
+                        // keypoint-set arm: the flicker is ONE byte, the
+                        // alpha, with `(int)fNoise` truncation. `BaseColor: -1`
+                        // (all bits set) is the format's "no base authored"
+                        // sentinel (`ColorMin/Max: -1` carry it too), so the
+                        // flicker is over the particle's own colour.
                         let base = match base_color {
                             Some(0xff_ff_ff_ff) | None => state.color,
                             Some(color) => *color,
                         };
-                        let mut packed = 0u32;
-                        for shift in COLOR_SHIFTS {
-                            let channel = (((base >> shift) & 0xff) as f32 + *amplitude * signed)
-                                .clamp(0., 255.) as u32;
-                            packed |= channel << shift;
-                        }
-                        state.color = packed;
+                        let dc = (*amplitude * signed).trunc() as i32;
+                        let alpha = (((base >> 24) & 0xff) as i32 + dc).clamp(0, 255) as u32;
+                        state.color = (base & 0x00ff_ffff) | (alpha << 24);
                     }
                     NoiseKind::Base => unreachable!("handled above"),
                 }
@@ -8308,9 +8323,9 @@ mod tests {
              ColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\n\
              RotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\n\
              AreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\n\
-             StartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 400\r\n\
+             StartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 60\r\n\
              WaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\n\
-             BaseColor: -1\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+             BaseColor: -2147418368\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
              TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\n\
              Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
         let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
@@ -8320,13 +8335,25 @@ mod tests {
         for _ in 0..5 {
             step(&mut many_short, 20.);
         }
-        let long = one_long.quads().first().expect("particle drew").color;
-        let short = many_short.quads().first().expect("particle drew").color;
-        assert_eq!(
-            long,
-            short,
-            "the noise sampled at the same 100 ms clock must not depend on \
-             whether the frame schedule was 1x100 ms or 5x20 ms"
+        // One 100 ms step ages every particle it drew to 100 ms; five 20 ms
+        // steps age their first cohort the same 100 ms. The walk is the
+        // controller's one curve over the keypoint clock, so the same-age
+        // particles must flicker identically whatever the frame schedule was
+        // — the pre-fix per-frame/per-particle random seeds broke exactly
+        // this. The base is mid-alpha so the flicker cannot saturate at 255
+        // and make the comparison vacuous.
+        let expected = one_long.quads().first().expect("particle drew").color;
+        for quad in one_long.quads() {
+            assert_eq!(quad.color, expected);
+        }
+        let matching = many_short
+            .quads()
+            .iter()
+            .filter(|quad| quad.color == expected)
+            .count();
+        assert!(
+            matching >= 2,
+            "the same-age particles must flicker identically whatever the frame schedule was"
         );
     }
 
