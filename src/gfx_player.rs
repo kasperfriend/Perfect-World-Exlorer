@@ -14471,7 +14471,10 @@ mod tests {
     fn blending_truncates_like_the_client_interpolate() {
         // 0x40 + (0x7f - 0x40) * 0.5 = 95.5 in every channel: the client's
         // cast lands on 95, `.round()` would say 96.
-        assert_eq!(blend_color(0xff_40_40_40, 0xff_7f_7f_7f, 0.5), 0xff_5f_5f_5f);
+        assert_eq!(
+            blend_color(0xff_40_40_40, 0xff_7f_7f_7f, 0.5),
+            0xff_5f_5f_5f
+        );
     }
 
     /// `A3DGFXKeyPointSet::Resume` copies keypoint 0's KPOrg once and only
@@ -14563,7 +14566,10 @@ mod tests {
                 }
             }
         }
-        assert!(sizes.len() > 1, "the 109 noise never changed the sprite size");
+        assert!(
+            sizes.len() > 1,
+            "the 109 noise never changed the sprite size"
+        );
         assert!(worst < 8., "the 109 noise moved the sprite {worst} units");
     }
 
@@ -14584,7 +14590,10 @@ mod tests {
         step(&mut player, 100.);
         let moved = quad_centre(&player.quads()[0]);
         let orbit_centre = Vec3::new(0., 4., 0.);
-        assert!((moved - start).length() > 0.3, "revolution must move: {moved}");
+        assert!(
+            (moved - start).length() > 0.3,
+            "revolution must move: {moved}"
+        );
         // A revolution is a rotation: the distance to the centre line through
         // Pos stays constant.
         assert!(
