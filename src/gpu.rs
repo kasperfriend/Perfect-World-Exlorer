@@ -4118,7 +4118,8 @@ pub fn run(
     // The full overhead render must follow the loaded map's own aspect. The
     // main world is 8192x11264 (1024x1408 here); instance maps are often square.
     let max_map_side = 1408f64.min(renderer.device.limits().max_texture_dimension_2d as f64);
-    let terrain_aspect = (t.width as f64 / t.height.max(1) as f64).clamp(0.01, 100.);
+    let terrain_aspect =
+        (map_space.width as f64 / map_space.height.max(1) as f64).clamp(0.01, 100.);
     let (full_map_width, full_map_height) = if terrain_aspect >= 1. {
         (
             max_map_side as u32,
