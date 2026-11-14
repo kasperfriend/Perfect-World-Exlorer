@@ -8196,7 +8196,10 @@ mod tests {
         // A particle in a one-unit area shaken by the authored 400. As world
         // units that is 400 times the volume it lives in.
         let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\nTexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\nParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\nColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\nRotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\nAreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\nStartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 400\r\nWaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\nBaseColor: -1\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
-        let mut player = build(&(header37(1) + fractal));
+        // The composed alpha carries the header's `DefaultAlpha`; at 0.5 the
+        // byte range maps to 0..=127 and the saturation claim cannot be read.
+        let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
+        let mut player = build(&(header + fractal));
         let mut peak = 0f32;
         let mut low = 255u8;
         let mut high = 0u8;
