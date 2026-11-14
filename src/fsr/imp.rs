@@ -1,6 +1,7 @@
 //! Windows + DX12 implementation of the FSR upscaler. See the module-level
 //! documentation in `super` for the overall design and its limits.
 
+use super::mv::{FsrMotionVectorPass, FsrMvParams};
 use glam::Mat4;
 use std::ffi::c_void;
 use winapi::shared::dxgiformat::{
@@ -9,24 +10,24 @@ use winapi::shared::dxgiformat::{
 };
 use winapi::um::d3d12 as d3d12_ty;
 
-const FFX_UPSCALER_VERSION: u32 = (4 << 22) | (1 << 12) | 2;
-const FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE: u64 = 0x00010000;
-const FFX_API_DISPATCH_DESC_TYPE_UPSCALE: u64 = 0x00010001;
-const FFX_API_QUERY_DESC_TYPE_UPSCALE_GETJITTERPHASECOUNT: u64 = 0x00010004;
-const FFX_API_QUERY_DESC_TYPE_UPSCALE_GETJITTEROFFSET: u64 = 0x00010005;
-const FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12: u64 = 0x00000002;
-const FFX_API_QUERY_DESC_TYPE_GET_VERSIONS: u64 = 4;
-const FFX_API_DESC_TYPE_OVERRIDE_VERSION: u64 = 5;
-const FFX_API_RESOURCE_STATE_UNORDERED_ACCESS: u32 = 1 << 1;
-const FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ: u32 = (1 << 2) | (1 << 3);
-const FFX_API_RESOURCE_USAGE_READ_ONLY: u32 = 0;
-const FFX_API_RESOURCE_USAGE_UAV: u32 = 1 << 1;
-const FFX_API_RESOURCE_USAGE_DEPTHTARGET: u32 = 1 << 2;
-const FFX_API_RESOURCE_TYPE_TEXTURE2D: u32 = 2;
-const FFX_API_SURFACE_FORMAT_R16G16_FLOAT: u32 = 18;
-const FFX_API_SURFACE_FORMAT_R32_FLOAT: u32 = 28;
-const FFX_API_SURFACE_FORMAT_B8G8R8A8_SRGB: u32 = 15;
-const FFX_API_SURFACE_FORMAT_R8G8B8A8_SRGB: u32 = 12;
+pub(crate) const FFX_UPSCALER_VERSION: u32 = (4 << 22) | (1 << 12) | 2;
+pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE: u64 = 0x00010000;
+pub(crate) const FFX_API_DISPATCH_DESC_TYPE_UPSCALE: u64 = 0x00010001;
+pub(crate) const FFX_API_QUERY_DESC_TYPE_UPSCALE_GETJITTERPHASECOUNT: u64 = 0x00010004;
+pub(crate) const FFX_API_QUERY_DESC_TYPE_UPSCALE_GETJITTEROFFSET: u64 = 0x00010005;
+pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12: u64 = 0x00000002;
+pub(crate) const FFX_API_QUERY_DESC_TYPE_GET_VERSIONS: u64 = 4;
+pub(crate) const FFX_API_DESC_TYPE_OVERRIDE_VERSION: u64 = 5;
+pub(crate) const FFX_API_RESOURCE_STATE_UNORDERED_ACCESS: u32 = 1 << 1;
+pub(crate) const FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ: u32 = (1 << 2) | (1 << 3);
+pub(crate) const FFX_API_RESOURCE_USAGE_READ_ONLY: u32 = 0;
+pub(crate) const FFX_API_RESOURCE_USAGE_UAV: u32 = 1 << 1;
+pub(crate) const FFX_API_RESOURCE_USAGE_DEPTHTARGET: u32 = 1 << 2;
+pub(crate) const FFX_API_RESOURCE_TYPE_TEXTURE2D: u32 = 2;
+pub(crate) const FFX_API_SURFACE_FORMAT_R16G16_FLOAT: u32 = 18;
+pub(crate) const FFX_API_SURFACE_FORMAT_R32_FLOAT: u32 = 28;
+pub(crate) const FFX_API_SURFACE_FORMAT_B8G8R8A8_SRGB: u32 = 15;
+pub(crate) const FFX_API_SURFACE_FORMAT_R8G8B8A8_SRGB: u32 = 12;
 const FFX_UPSCALE_ENABLE_DEPTH_INVERTED: u32 = 1 << 3;
 const FFX_UPSCALE_ENABLE_NON_LINEAR_COLORSPACE: u32 = 1 << 8;
 const FFX_UPSCALE_FLAG_NON_LINEAR_COLOR_SRGB: u32 = 1 << 1;
@@ -34,22 +35,22 @@ const FFX_UPSCALE_FLAG_NON_LINEAR_COLOR_SRGB: u32 = 1 << 1;
 // D3D12 states the frame loop leaves the native targets in before the FFX
 // command list runs, and the states it restores them to afterwards so wgpu's
 // own tracker stays truthful on the following frame.
-const D3D12_STATE_COMMON: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COMMON;
-const D3D12_STATE_COPY_DEST: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COPY_DEST;
-const D3D12_STATE_RENDER_TARGET: u32 = d3d12_ty::D3D12_RESOURCE_STATE_RENDER_TARGET;
-const D3D12_STATE_UNORDERED_ACCESS: u32 = d3d12_ty::D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-const D3D12_STATE_PIXEL_COMPUTE_READ: u32 = d3d12_ty::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+pub(crate) const D3D12_STATE_COMMON: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COMMON;
+pub(crate) const D3D12_STATE_COPY_DEST: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COPY_DEST;
+pub(crate) const D3D12_STATE_RENDER_TARGET: u32 = d3d12_ty::D3D12_RESOURCE_STATE_RENDER_TARGET;
+pub(crate) const D3D12_STATE_UNORDERED_ACCESS: u32 = d3d12_ty::D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+pub(crate) const D3D12_STATE_PIXEL_COMPUTE_READ: u32 = d3d12_ty::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
     | d3d12_ty::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct FfxApiHeader {
-    r#type: u64,
-    p_next: *mut FfxApiHeader,
+pub(crate) struct FfxApiHeader {
+    pub(crate) r#type: u64,
+    pub(crate) p_next: *mut FfxApiHeader,
 }
 
 impl FfxApiHeader {
-    fn new(r#type: u64) -> Self {
+    pub(crate) fn new(r#type: u64) -> Self {
         Self {
             r#type,
             p_next: std::ptr::null_mut(),
@@ -59,41 +60,41 @@ impl FfxApiHeader {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct FfxApiDimensions2D {
-    width: u32,
-    height: u32,
+pub(crate) struct FfxApiDimensions2D {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct FfxApiFloatCoords2D {
-    x: f32,
-    y: f32,
+pub(crate) struct FfxApiFloatCoords2D {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct FfxApiResourceDescription {
-    r#type: u32,
-    format: u32,
-    width: u32,
-    height: u32,
-    depth: u32,
-    mip_count: u32,
-    flags: u32,
-    usage: u32,
+pub(crate) struct FfxApiResourceDescription {
+    pub(crate) r#type: u32,
+    pub(crate) format: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) depth: u32,
+    pub(crate) mip_count: u32,
+    pub(crate) flags: u32,
+    pub(crate) usage: u32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct FfxApiResource {
-    resource: *mut c_void,
-    description: FfxApiResourceDescription,
-    state: u32,
+pub(crate) struct FfxApiResource {
+    pub(crate) resource: *mut c_void,
+    pub(crate) description: FfxApiResourceDescription,
+    pub(crate) state: u32,
 }
 
 impl FfxApiResource {
-    const EMPTY: FfxApiResource = FfxApiResource {
+    pub(crate) const EMPTY: FfxApiResource = FfxApiResource {
         resource: std::ptr::null_mut(),
         description: FfxApiResourceDescription {
             r#type: 0,
@@ -108,7 +109,7 @@ impl FfxApiResource {
         state: 0,
     };
 
-    fn texture2d(
+    pub(crate) fn texture2d(
         resource: &d3d12::Resource,
         format: u32,
         width: u32,
@@ -143,25 +144,25 @@ struct FfxCreateContextDescUpscale {
 }
 
 #[repr(C)]
-struct FfxCreateBackendDX12Desc {
-    header: FfxApiHeader,
-    device: *mut c_void,
+pub(crate) struct FfxCreateBackendDX12Desc {
+    pub(crate) header: FfxApiHeader,
+    pub(crate) device: *mut c_void,
 }
 
 #[repr(C)]
-struct FfxOverrideVersion {
-    header: FfxApiHeader,
-    version_id: u64,
+pub(crate) struct FfxOverrideVersion {
+    pub(crate) header: FfxApiHeader,
+    pub(crate) version_id: u64,
 }
 
 #[repr(C)]
-struct FfxQueryDescGetVersions {
-    header: FfxApiHeader,
-    create_desc_type: u64,
-    device: *mut c_void,
-    output_count: *mut u64,
-    version_ids: *mut u64,
-    version_names: *mut *const std::os::raw::c_char,
+pub(crate) struct FfxQueryDescGetVersions {
+    pub(crate) header: FfxApiHeader,
+    pub(crate) create_desc_type: u64,
+    pub(crate) device: *mut c_void,
+    pub(crate) output_count: *mut u64,
+    pub(crate) version_ids: *mut u64,
+    pub(crate) version_names: *mut *const std::os::raw::c_char,
 }
 
 #[repr(C)]
@@ -208,14 +209,15 @@ struct FfxDispatchDescUpscale {
     flags: u32,
 }
 
-type FfxReturnCode = u32;
-const FFX_API_RETURN_OK: FfxReturnCode = 0;
+pub(crate) type FfxReturnCode = u32;
+pub(crate) const FFX_API_RETURN_OK: FfxReturnCode = 0;
 
-type PfnFfxCreateContext =
+pub(crate) type PfnFfxCreateContext =
     unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader, *const c_void) -> FfxReturnCode;
-type PfnFfxDestroyContext = unsafe extern "C" fn(*mut *mut c_void, *const c_void) -> FfxReturnCode;
-type PfnFfxQuery = unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader) -> FfxReturnCode;
-type PfnFfxDispatch = unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
+pub(crate) type PfnFfxDestroyContext = unsafe extern "C" fn(*mut *mut c_void, *const c_void) -> FfxReturnCode;
+pub(crate) type PfnFfxQuery = unsafe extern "C" fn(*mut *mut c_void, *mut FfxApiHeader) -> FfxReturnCode;
+pub(crate) type PfnFfxDispatch = unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
+pub(crate) type PfnFfxConfigure = unsafe extern "C" fn(*mut *mut c_void, *const FfxApiHeader) -> FfxReturnCode;
 
 extern "C" fn fsr_message_callback(message_type: u32, message: *const u16) {
     if message.is_null() {
@@ -239,12 +241,13 @@ extern "C" fn fsr_message_callback(message_type: u32, message: *const u16) {
     );
 }
 
-struct FfxLoader {
-    handle: winapi::shared::minwindef::HMODULE,
-    create_context: PfnFfxCreateContext,
-    destroy_context: PfnFfxDestroyContext,
-    query: PfnFfxQuery,
-    dispatch: PfnFfxDispatch,
+pub(crate) struct FfxLoader {
+    pub(crate) handle: winapi::shared::minwindef::HMODULE,
+    pub(crate) create_context: PfnFfxCreateContext,
+    pub(crate) destroy_context: PfnFfxDestroyContext,
+    pub(crate) query: PfnFfxQuery,
+    pub(crate) dispatch: PfnFfxDispatch,
+    pub(crate) configure: PfnFfxConfigure,
 }
 
 impl Drop for FfxLoader {
@@ -256,7 +259,7 @@ impl Drop for FfxLoader {
 }
 
 impl FfxLoader {
-    fn load(sdk_dir: &str) -> Result<FfxLoader, String> {
+    pub(crate) fn load(sdk_dir: &str) -> Result<FfxLoader, String> {
         use std::os::windows::ffi::OsStrExt;
         let mut candidates: Vec<std::path::PathBuf> = Vec::new();
         let trimmed = sdk_dir.trim();
@@ -308,6 +311,7 @@ impl FfxLoader {
                     destroy_context: unsafe { std::mem::transmute(get(b"ffxDestroyContext\0")?) },
                     query: unsafe { std::mem::transmute(get(b"ffxQuery\0")?) },
                     dispatch: unsafe { std::mem::transmute(get(b"ffxDispatch\0")?) },
+                    configure: unsafe { std::mem::transmute(get(b"ffxConfigure\0")?) },
                 })
             })();
             match loaded {
@@ -340,7 +344,7 @@ fn ffx_color_format(format: wgpu::TextureFormat) -> u32 {
     }
 }
 
-fn dxgi_color_format(format: wgpu::TextureFormat) -> DXGI_FORMAT {
+pub(crate) fn dxgi_color_format(format: wgpu::TextureFormat) -> DXGI_FORMAT {
     if is_bgra_format(format) {
         DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
     } else {
@@ -348,21 +352,21 @@ fn dxgi_color_format(format: wgpu::TextureFormat) -> DXGI_FORMAT {
     }
 }
 
-fn hr_ok(hr: winapi::shared::winerror::HRESULT) -> bool {
+pub(crate) fn hr_ok(hr: winapi::shared::winerror::HRESULT) -> bool {
     hr >= 0
 }
 
 /// Committed texture + the wgpu import that mirrors it, so both the native
 /// FFX command list and wgpu can address the same allocation.
-struct NativeTexture2D {
-    resource: d3d12::Resource,
-    texture: wgpu::Texture,
+pub(crate) struct NativeTexture2D {
+    pub(crate) resource: d3d12::Resource,
+    pub(crate) texture: wgpu::Texture,
 }
 
 impl NativeTexture2D {
     /// # Safety
     /// The caller guarantees the wgpu device was created by `raw_device`.
-    unsafe fn create(
+    pub(crate) unsafe fn create(
         device: &wgpu::Device,
         raw_device: &d3d12::Device,
         label: &str,
@@ -456,170 +460,6 @@ impl NativeTexture2D {
             device.create_texture_from_hal::<wgpu_hal::dx12::Api>(hal_texture, &import_desc)
         };
         Ok(NativeTexture2D { resource, texture })
-    }
-}
-
-const MV_SHADER: &str = r#"
-struct MvParams {
-    inv_vp: mat4x4<f32>,
-    prev_vp: mat4x4<f32>,
-    render_size: vec2<f32>,
-    prev_valid: u32,
-    _pad: u32,
-};
-@group(0) @binding(0) var depth: texture_depth_2d;
-@group(0) @binding(1) var<uniform> params: MvParams;
-struct VOut { @builtin(position) pos: vec4<f32> };
-@vertex fn vs(@builtin(vertex_index) id: u32) -> VOut {
-    var o: VOut;
-    let x = f32((id << 1u) & 2u);
-    let y = f32(id & 2u);
-    o.pos = vec4<f32>(x * 2. - 1., 1. - y * 2., 0., 1.);
-    return o;
-}
-struct FOut {
-    // Motion vectors in render-resolution pixel space (rg16f).
-    @location(0) mv: vec2<f32>,
-    // Raw reversed-Z depth passthrough (r32f): the upscaler samples depth
-    // straight from this copy so the input is a plain R32_FLOAT surface
-    // instead of a depth-stencil-formatted one it cannot bind as an SRV.
-    @location(1) raw_depth: f32,
-};
-@fragment fn fs(i: VOut) -> FOut {
-    let size = params.render_size;
-    let clamped = clamp(vec2<i32>(floor(i.pos.xy)), vec2<i32>(0, 0), vec2<i32>(size) - vec2<i32>(1, 1));
-    let d = textureLoad(depth, clamped, 0);
-    var out: FOut;
-    out.raw_depth = d;
-    out.mv = vec2<f32>(0.0, 0.0);
-    if (params.prev_valid != 0u) {
-        let px = floor(i.pos.xy) + vec2<f32>(0.5, 0.5);
-        let uv = px / size;
-        let ndc = vec4<f32>(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0, d, 1.0);
-        var world = params.inv_vp * ndc;
-        if (abs(world.w) >= 1e-8) {
-            world = world / world.w;
-            let clip = params.prev_vp * world;
-            if (abs(clip.w) >= 1e-8) {
-                let prev_ndc = clip.xy / clip.w;
-                let prev_uv = vec2<f32>((prev_ndc.x + 1.0) * 0.5, (1.0 - prev_ndc.y) * 0.5);
-                out.mv = (uv - prev_uv) * size;
-            }
-        }
-    }
-    return out;
-}
-"#;
-
-const COMPOSITE_SHADER: &str = r#"
-@group(0) @binding(0) var frame: texture_2d<f32>;
-@group(0) @binding(1) var samp: sampler;
-struct VOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
-@vertex fn vs(@builtin(vertex_index) id: u32) -> VOut {
-    var o: VOut;
-    let x = f32((id << 1u) & 2u);
-    let y = f32(id & 2u);
-    o.pos = vec4<f32>(x * 2. - 1., 1. - y * 2., 0., 1.);
-    o.uv = vec2<f32>(x, y);
-    return o;
-}
-@fragment fn fs(i: VOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(textureSample(frame, samp, i.uv).rgb, 1.0);
-}
-"#;
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct FsrMvParams {
-    inv_vp: [[f32; 4]; 4],
-    prev_vp: [[f32; 4]; 4],
-    render_size: [f32; 2],
-    prev_valid: u32,
-    pad: u32,
-}
-
-struct FsrMotionVectorPass {
-    pipeline: wgpu::RenderPipeline,
-    layout: wgpu::BindGroupLayout,
-    params: wgpu::Buffer,
-}
-
-impl FsrMotionVectorPass {
-    fn new(device: &wgpu::Device) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("fsr motion vector layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("fsr motion vector WGSL"),
-            source: wgpu::ShaderSource::Wgsl(MV_SHADER.into()),
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("fsr motion vector pipeline layout"),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("fsr motion vector pass"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs",
-                targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rg16Float,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::R32Float,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                ],
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview: None,
-        });
-        let params = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fsr motion vector params"),
-            size: std::mem::size_of::<FsrMvParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        Self {
-            pipeline,
-            layout,
-            params,
-        }
     }
 }
 
@@ -746,16 +586,6 @@ impl FsrComposite {
 
 /// Pick the provider version id to force. Prefers the exact version the app
 /// was built against; otherwise the newest enumerated provider wins.
-fn choose_version(ids: &[u64]) -> Option<u64> {
-    if ids.is_empty() {
-        return None;
-    }
-    ids.iter()
-        .copied()
-        .find(|id| (*id & 0x7fff_ffff) == u64::from(FFX_UPSCALER_VERSION))
-        .or_else(|| ids.iter().copied().max())
-}
-
 struct FsrNatives {
     color: NativeTexture2D,
     depth: NativeTexture2D,
@@ -766,7 +596,7 @@ struct FsrNatives {
 impl FsrNatives {
     /// # Safety
     /// `raw_device` must be the device `device` was created from.
-    unsafe fn create(
+    pub(crate) unsafe fn create(
         device: &wgpu::Device,
         raw_device: &d3d12::Device,
         render_extent: (u32, u32),
@@ -840,6 +670,7 @@ pub struct FsrUpscaler {
     prev_view_proj: Option<Mat4>,
     reset_history: bool,
     last_instant: std::time::Instant,
+    version_major: u32,
 }
 
 impl Drop for FsrUpscaler {
@@ -860,26 +691,12 @@ impl FsrUpscaler {
         render_extent: (u32, u32),
         display_extent: (u32, u32),
         format: wgpu::TextureFormat,
+        fsr_version_major: u32,
     ) -> Result<FsrUpscaler, String> {
         let _ = queue;
         let loader = FfxLoader::load(sdk_dir)?;
         // Owned clones of the hal handles; the originals belong to wgpu.
-        let raw_device = unsafe {
-            device
-                .as_hal::<wgpu_hal::dx12::Api, _, _>(|maybe| {
-                    maybe.map(|hal_device| hal_device.raw_device().clone())
-                })
-                .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
-                .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
-        };
-        let raw_queue = unsafe {
-            device
-                .as_hal::<wgpu_hal::dx12::Api, _, _>(|maybe| {
-                    maybe.map(|hal_device| hal_device.raw_queue().clone())
-                })
-                .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
-                .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
-        };
+        let (raw_device, raw_queue) = raw_dx12(device)?;
         let device_ptr = raw_device.as_mut_ptr() as *mut c_void;
 
         // Enumerate the providers the loader can reach and force the newest
@@ -912,7 +729,7 @@ impl FsrUpscaler {
             let rc = unsafe { (loader.query)(std::ptr::null_mut(), &mut probe.header) };
             if rc == FFX_API_RETURN_OK {
                 ids.truncate(count as usize);
-                chosen_version = choose_version(&ids);
+                chosen_version = choose_version_for_major(&ids, fsr_version_major);
                 provider_note = format!(
                     "providers {:?}, selected 0x{:x}",
                     ids.iter().map(|i| format!("0x{i:x}")).collect::<Vec<_>>(),
@@ -1035,6 +852,7 @@ impl FsrUpscaler {
             prev_view_proj: None,
             reset_history: true,
             last_instant: std::time::Instant::now(),
+            version_major: fsr_version_major,
         })
     }
 
@@ -1044,6 +862,11 @@ impl FsrUpscaler {
 
     pub fn display_extent(&self) -> (u32, u32) {
         self.display_extent
+    }
+
+    /// The requested FFX provider major version (0 = newest advertised).
+    pub(crate) fn version_major(&self) -> u32 {
+        self.version_major
     }
 
     pub fn next_jitter(&mut self) -> (f32, f32) {
@@ -1354,5 +1177,81 @@ impl FsrUpscaler {
     ) {
         self.composite
             .draw(device, queue, &self.natives.output.texture, target);
+    }
+}
+
+
+/// Owned clones of the DX12 device and direct command queue wgpu created,
+/// for code that records its own native command lists against the same GPU.
+///
+/// # Safety
+/// The caller must keep the hal handles outliving the FFX objects that use
+/// them; the originals belong to wgpu.
+pub(crate) fn raw_dx12(
+    device: &wgpu::Device,
+) -> Result<(d3d12::Device, d3d12::CommandQueue), String> {
+    let raw_device = unsafe {
+        device
+            .as_hal::<wgpu_hal::dx12::Api, _, _>(|maybe| {
+                maybe.map(|hal_device| hal_device.raw_device().clone())
+            })
+            .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
+            .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
+    };
+    let raw_queue = unsafe {
+        device
+            .as_hal::<wgpu_hal::dx12::Api, _, _>(|maybe| {
+                maybe.map(|hal_device| hal_device.raw_queue().clone())
+            })
+            .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
+            .ok_or_else(|| "the wgpu device is not a DX12 device".to_string())?
+    };
+    Ok((raw_device, raw_queue))
+}
+
+/// Pick the provider version id to force. Prefers the provider whose major
+/// version equals `wanted_major` (2, 3 or 4; 0 = automatic); within a major,
+/// the newest wins. Falls back to the newest enumerated provider overall when
+/// the requested major is not advertised by the DLL.
+pub(crate) fn choose_version_for_major(ids: &[u64], wanted_major: u32) -> Option<u64> {
+    if ids.is_empty() {
+        return None;
+    }
+    let major = |id: u64| ((id >> 22) & 0x3ff) as u32;
+    if wanted_major == 0 {
+        return ids.iter().copied().max();
+    }
+    ids.iter()
+        .copied()
+        .filter(|id| major(*id) == wanted_major)
+        .max()
+        .or_else(|| {
+            eprintln!(
+                "[FSR] no FSR major.{} provider advertised (found {:?}); using the newest available",
+                wanted_major,
+                ids.iter().map(|i| format!("0x{i:x}")).collect::<Vec<_>>()
+            );
+            ids.iter().copied().max()
+        })
+}
+
+impl FsrUpscaler {
+    /// Native depth (R32_FLOAT, reversed-Z) and motion vector (Rg16Float)
+    /// resources, cloned for the frame-generation prepare dispatch.
+    pub(crate) fn fg_native_resources(&self) -> (d3d12::Resource, d3d12::Resource) {
+        (
+            self.natives.depth.resource.clone(),
+            self.natives.mv.resource.clone(),
+        )
+    }
+
+    /// The jitter offset handed to the upscaler this frame.
+    pub(crate) fn jitter(&self) -> (f32, f32) {
+        self.current_jitter
+    }
+
+    /// `true` when this frame is a history reset frame (teleport/cut).
+    pub(crate) fn wants_reset(&self) -> bool {
+        self.reset_history
     }
 }

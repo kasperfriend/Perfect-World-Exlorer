@@ -199,12 +199,20 @@ defaults (see the migration test in `view_settings.rs`).
    (MIT-style license; notices reproduced; packaging stages them). AMD FSR
    can and does dispatch from this wgpu 0.19.x renderer: the FFX upscaler runs
    on its own native D3D12 command list chained to the wgpu device/queue
-   (`wgpu::Device::as_hal`; see `src/fsr.rs` and `docs/blockers.md` B-3/B-5) —
-   runtime unverified. DLSS/XeSS cannot dispatch and still render through the
-   fallback path. When a provider is selected but its SDK cannot be
-   used, the world renders through the existing fallback path at the
-   provider's recommended internal resolution — the UI says so, and no
-   temporal accumulation is faked (see `docs/blockers.md` B-3).
+   (`wgpu::Device::as_hal`; see `src/fsr.rs` and `docs/blockers.md` B-3/B-5).
+   **FSR frame generation** (`FrameGenerationSwapChainForHwndDX12`) is wired
+   the same way: the viewer drops its wgpu surface on enable, FFX creates its
+   own proxy `IDXGISwapChain4` for the window, the UI is drawn into a separate
+   native-resolution texture that the swapchain composites onto real and
+   generated frames, and `ffxDispatchDescFrameGeneration` runs on the
+   interpolation command list (`src/fsr/fg.rs`). Release destroys the FFX
+   contexts and hands the window back to a recreated wgpu surface. Runtime
+   unverified — it has not run on hardware yet (see B-7). DLSS/XeSS cannot
+   dispatch and still render through the fallback path. When a provider is
+   selected but its SDK cannot be used, the world renders through the
+   existing fallback path at the provider's recommended internal resolution —
+   the UI says so, and no temporal accumulation is faked (see
+   `docs/blockers.md` B-3).
 3. **Diagnostics**: `perfect-world-explorer --diagnose-upscale` and
    `perfect-world-explorer --diagnose-framegen` (flags on the viewer binary)
    print the support/pairing matrix and the

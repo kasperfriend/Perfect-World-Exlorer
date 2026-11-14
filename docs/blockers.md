@@ -78,7 +78,9 @@ done.
     every provider stays disabled with a visible reason until a real SDK is
     present.
   - AMD FSR **is** now implemented (`src/fsr.rs`, Windows + DX12 only) and
-    wired behind the same `Upscaling = FSR` setting. The AMD loader DLL is
+    wired behind the same `Upscaling = FSR` setting. The upscaler is the FFX
+    **Upscaling 4.1.2** provider by default; `fsr_version=` pins the major
+    (0 newest / 3 FSR 3.1.6 / 4 Upscaling 4.x). The AMD loader DLL is
     loaded with LoadLibraryW/GetProcAddress; the FFX 2.4.0 upscaler provider
     is enumerated with `ffxQueryDescGetVersions` and pinned with
     `ffxOverrideVersion`; the world projection is jittered with the FFX jitter
@@ -137,7 +139,7 @@ and frame generation").
   Windows + DX12) jitters only the world projection (UI/minimap/compositor
   stay unjittered), reconstructs camera-only motion vectors from depth, and
   feeds the SDK a raw R32_FLOAT copy of the reversed-Z depth buffer.
-- **Workaround:** FSR 2.4.0 consumes camera-motion MVs; actors that move in
+- **Workaround:** the FFX upscaler (Upscaling 4.1.2) consumes camera-motion MVs; actors that move in
   world space are reprojected as if static (ghosting on animated geometry is
   expected). There is still no per-object or skeletal velocity pass. DLSS/XeSS
   paths render bilinearly as before.
@@ -189,8 +191,11 @@ and frame generation").
 - **Step:** Phase 4.21 — with FG on, present frames in order and never drop
   the UI input rate; test with the diagnostics frame counter.
 - **Error:** requires a working frame-generation provider and present loop
-  (B-3) plus a Windows GPU (B-2). No FG presents frames here, so there is
-  nothing to pace.
+  (B-3) plus a Windows GPU (B-2). The FFX frame generation swapchain
+  present loop is now implemented in `src/fsr/fg.rs` (proxy
+  `IDXGISwapChain4` on the hwnd, UI composition texture,
+  frame pacing inside `Present(1, 0)`); it has not run on hardware, so the
+  pacing behaviour and the input-rate contract are unverified.
 - **Tried:** diagnostics `TimingFrame`/`EffectFrames` channels exist
   (`src/diagnostics.rs`) and are the right probe; the pacing contract is
   documented for the implementer in `README.md` and

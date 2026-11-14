@@ -1,0 +1,1028 @@
+//! AMD FSR Frame Generation (swapchain implementation), Windows + DX12.
+//!
+//! Frame generation cannot be layered on top of wgpu's swapchain the way the
+//! upscaler layers on top of wgpu's command queue, because the interpolation
+//! and the frame pacing happen *inside* a swapchain that implements
+//! `IDXGISwapChain4`. This module therefore takes presentation over:
+//!
+//! * On enable, the wgpu surface is dropped (which destroys wgpu-hal's
+//!   `IDXGISwapChain`), and the FFX `FrameGenerationSwapChainForHwnd` context
+//!   is created. FFX creates its own `IDXGISwapChain4` proxy for the hwnd.
+//! * Every frame the caller renders normally, ending with a linear image in
+//!   [`FrameGeneration::compose_view`] (UNORM or sRGB to mirror what wgpu's
+//!   swapchain format would be). The final step calls
+//!   [`FrameGeneration::finish`], which copies the composition into the
+//!   proxy backbuffer, registers the separate UI texture, configures the
+//!   frame generation context, records the interpolation dispatch on the
+//!   interpolation command list FFX hands back, and finally `Present`s
+//!   through the proxy (which paces real and generated frames).
+//! * On disable, the FFX contexts are destroyed and the proxy released,
+//!   freeing the hwnd; the engine recreates the wgpu surface afterwards.
+//!
+//! UI composition uses the "render the UI to a separate surface" mode: the
+//! UI is drawn into [`FrameGeneration::ui_view`] by the caller and registered
+//! with the swapchain every frame, so generated frames composite a sharp UI
+//! on top of the interpolated scene. Frames without UI register an empty UI
+//! resource instead.
+//!
+//! Synchronisation follows the same pattern as the upscaler: everything
+//! native runs on the one D3D12 direct queue wgpu-hal created, wgpu submits
+//! first, then the native lists execute, then the proxy presents. The native
+//! lists restore every tracked state so wgpu's tracker never desynchronises.
+
+use super::imp::{
+    choose_version_for_major, raw_dx12, FfxApiDimensions2D, FfxApiFloatCoords2D,
+    FfxApiHeader, FfxApiResource, FfxCreateBackendDX12Desc, FfxLoader, FfxOverrideVersion,
+    FfxQueryDescGetVersions, FsrMotionVectorPass, FsrMvParams, NativeTexture2D,
+    FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
+    FFX_API_SURFACE_FORMAT_R16G16_FLOAT, FFX_API_SURFACE_FORMAT_R32_FLOAT,
+};
+use glam::Mat4;
+use std::ffi::c_void;
+use winapi::shared::dxgi::{
+    DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_EFFECT_FLIP_DISCARD, IDXGISwapChain,
+};
+use winapi::shared::dxgi1_2::{DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1};
+use winapi::shared::dxgi1_3;
+use winapi::shared::dxgi1_4::{IDXGIFactory4, IDXGISwapChain3};
+use winapi::shared::dxgi1_5::IDXGISwapChain4;
+use winapi::shared::dxgiformat::{
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
+    DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R8G8B8A8_UNORM,
+    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+};
+use winapi::shared::dxgitype::{DXGI_SAMPLE_DESC, DXGI_USAGE_RENDER_TARGET_OUTPUT};
+use winapi::um::d3d12 as d3d12_ty;
+use winapi::Interface;
+
+pub(crate) const FFX_FRAMEGENERATION_VERSION: u32 = (4 << 22) | (0 << 12) | 2;
+pub(crate) const FFX_FRAMEGENERATION_SWAPCHAIN_DX12_VERSION: u32 = (4 << 22) | (0 << 12) | 0;
+pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION: u64 = 0x00020001;
+pub(crate) const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION: u64 = 0x00020002;
+pub(crate) const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION: u64 = 0x00020003;
+pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION: u64 = 0x0002000e;
+pub(crate) const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2: u64 = 0x0002000c;
+pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12: u64 =
+    0x00030006;
+pub(crate) const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12:
+    u64 = 0x00030002;
+pub(crate) const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12:
+    u64 = 0x00030003;
+pub(crate) const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12: u64 =
+    0x00030004;
+pub(crate) const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12: u64 =
+    0x0003000b;
+pub(crate) const FFX_API_RESOURCE_STATE_PRESENT: u32 = 1 << 7;
+const FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED: u32 = 1 << 3;
+const FFX_FRAMEGENERATION_UI_COMPOSITION_FLAG_ENABLE_INTERNAL_UI_DOUBLE_BUFFERING: u32 = 1 << 1;
+const FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM: u32 = 14;
+const FFX_API_SURFACE_FORMAT_B8G8R8A8_SRGB: u32 = 15;
+const FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM: u32 = 10;
+const FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SRGB: u32 = 0;
+
+// States the native lists move resources through and back, mirroring the
+// upscaler's bookkeeping so wgpu's tracker stays truthful.
+const D3D12_STATE_COPY_SRC: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COPY_SOURCE;
+const D3D12_STATE_COPY_DEST: u32 = d3d12_ty::D3D12_RESOURCE_STATE_COPY_DEST;
+const D3D12_STATE_PRESENT: u32 = d3d12_ty::D3D12_RESOURCE_STATE_PRESENT;
+const D3D12_STATE_RENDER_TARGET: u32 = d3d12_ty::D3D12_RESOURCE_STATE_RENDER_TARGET;
+const D3D12_STATE_PIXEL_COMPUTE_READ: u32 = d3d12_ty::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+    | d3d12_ty::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+const D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES: u32 =
+    d3d12_ty::D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+const D3D12_RESOURCE_BARRIER_FLAG_NONE: u32 = d3d12_ty::D3D12_RESOURCE_BARRIER_FLAG_NONE;
+
+/// FFX surface format matching a common wgpu color format.
+fn ffx_color_for_format(format: wgpu::TextureFormat) -> u32 {
+    let bgra = matches!(
+        format,
+        wgpu::TextureFormat::Bgra8UnormSrgb | wgpu::TextureFormat::Bgra8Unorm
+    );
+    match (bgra, format.is_srgb()) {
+        (true, true) => FFX_API_SURFACE_FORMAT_B8G8R8A8_SRGB,
+        (true, false) => FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM,
+        (false, true) => 12, // FFX_API_SURFACE_FORMAT_R8G8B8A8_SRGB
+        (false, false) => FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM,
+    }
+}
+
+/// DXGI format matching a common wgpu color format. Unlike `dxgi_color_format`
+/// (which is always sRGB, as the FSR inputs expect), this preserves sRGB-ness
+/// so the composition target matches the wgpu texture created from it.
+fn dxgi_for_format(format: wgpu::TextureFormat) -> DXGI_FORMAT {
+    match format {
+        wgpu::TextureFormat::Bgra8Unorm => DXGI_FORMAT_B8G8R8A8_UNORM,
+        wgpu::TextureFormat::Bgra8UnormSrgb => DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
+        wgpu::TextureFormat::Rgba8Unorm => DXGI_FORMAT_R8G8B8A8_UNORM,
+        wgpu::TextureFormat::Rgba8UnormSrgb => DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+        _ => DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
+    }
+}
+
+#[repr(C)]
+pub(crate) struct FfxApiRect2D {
+    pub(crate) left: i32,
+    pub(crate) top: i32,
+    pub(crate) width: i32,
+    pub(crate) height: i32,
+}
+
+#[repr(C)]
+struct FfxCreateContextDescFrameGeneration {
+    header: FfxApiHeader,
+    flags: u32,
+    display_size: FfxApiDimensions2D,
+    max_render_size: FfxApiDimensions2D,
+    back_buffer_format: u32,
+}
+
+#[repr(C)]
+struct FfxCreateContextDescFrameGenerationVersion {
+    header: FfxApiHeader,
+    version: u32,
+}
+
+#[repr(C)]
+struct FfxCreateContextDescFrameGenerationSwapChainForHwndDX12 {
+    header: FfxApiHeader,
+    swapchain: *mut *mut c_void,
+    hwnd: *mut c_void,
+    desc: *mut DXGI_SWAP_CHAIN_DESC1,
+    fullscreen_desc: *mut c_void,
+    dxgi_factory: *mut c_void,
+    game_queue: *mut c_void,
+}
+
+#[repr(C)]
+struct FfxCreateContextDescFrameGenerationSwapChainVersionDX12 {
+    header: FfxApiHeader,
+    version: u32,
+}
+
+#[repr(C)]
+struct FfxConfigureDescFrameGeneration {
+    header: FfxApiHeader,
+    swap_chain: *mut c_void,
+    present_callback: *mut c_void,
+    present_callback_user_context: *mut c_void,
+    frame_generation_callback: *mut c_void,
+    frame_generation_callback_user_context: *mut c_void,
+    frame_generation_enabled: bool,
+    allow_async_workloads: bool,
+    hudless_color: FfxApiResource,
+    flags: u32,
+    only_present_generated: bool,
+    generation_rect: FfxApiRect2D,
+    frame_id: u64,
+}
+
+#[repr(C)]
+struct FfxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 {
+    header: FfxApiHeader,
+    ui_resource: FfxApiResource,
+    flags: u32,
+}
+
+#[repr(C)]
+struct FfxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 {
+    header: FfxApiHeader,
+    p_out_command_list: *mut *mut c_void,
+}
+
+#[repr(C)]
+struct FfxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 {
+    header: FfxApiHeader,
+    p_out_texture: *mut FfxApiResource,
+}
+
+#[repr(C)]
+struct FfxDispatchDescFrameGenerationPrepareV2 {
+    header: FfxApiHeader,
+    frame_id: u64,
+    flags: u32,
+    command_list: *mut c_void,
+    render_size: FfxApiDimensions2D,
+    jitter_offset: FfxApiFloatCoords2D,
+    motion_vector_scale: FfxApiFloatCoords2D,
+    frame_time_delta: f32,
+    reset: bool,
+    camera_near: f32,
+    camera_far: f32,
+    camera_fov_angle_vertical: f32,
+    view_space_to_meters_factor: f32,
+    depth: FfxApiResource,
+    motion_vectors: FfxApiResource,
+    camera_position: [f32; 3],
+    camera_up: [f32; 3],
+    camera_right: [f32; 3],
+    camera_forward: [f32; 3],
+}
+
+#[repr(C)]
+struct FfxDispatchDescFrameGeneration {
+    header: FfxApiHeader,
+    command_list: *mut c_void,
+    present_color: FfxApiResource,
+    outputs: [FfxApiResource; 4],
+    num_generated_frames: u32,
+    reset: bool,
+    backbuffer_transfer_function: u32,
+    min_max_luminance: [f32; 2],
+    generation_rect: FfxApiRect2D,
+    frame_id: u64,
+}
+
+/// Frame generation pipeline state (Windows + DX12 only).
+pub struct FrameGeneration {
+    loader: FfxLoader,
+    #[allow(dead_code)]
+    raw_device: d3d12::Device,
+    queue: d3d12::CommandQueue,
+    allocator: d3d12::CommandAllocator,
+    list: d3d12::GraphicsCommandList,
+    fg_context: *mut c_void,
+    swapchain_context: *mut c_void,
+    /// Proxy `IDXGISwapChain4*` handed out by the swapchain context.
+    proxy: *mut c_void,
+    /// `true` while the proxy is valid.
+    proxy_alive: bool,
+    size: (u32, u32),
+    render_extent: (u32, u32),
+    srgb_backbuffer: bool,
+    /// FFX surface format describing the UI texture.
+    ui_ffx_format: u32,
+    /// Composition target: everything except the UI is drawn here, then it is
+    /// copied into the proxy backbuffer at present time.
+    compose: NativeTexture2D,
+    /// Separate UI surface, composited onto real and generated frames by the
+    /// swapchain.
+    ui: NativeTexture2D,
+    /// Native depth/MV copies at render extent (independent of the FSR
+    /// upscaler, so frame generation works with any upscaler or none).
+    depth: NativeTexture2D,
+    mv: NativeTexture2D,
+    mv_pass: FsrMotionVectorPass,
+    prev_view_proj: Option<Mat4>,
+    frame_index: u64,
+}
+
+impl Drop for FrameGeneration {
+    fn drop(&mut self) {
+        if !self.fg_context.is_null() {
+            // Disabling via configuration first flushes the swapchain's
+            // pending work; destroying both contexts afterwards releases the
+            // proxy's internal swapchain.
+            let mut config = self.configure_desc(false);
+            unsafe {
+                (self.loader.configure)(&mut self.fg_context, &mut config.header);
+            }
+            unsafe {
+                (self.loader.destroy_context)(&mut self.fg_context, std::ptr::null());
+            }
+            self.fg_context = std::ptr::null_mut();
+        }
+        if !self.swapchain_context.is_null() {
+            unsafe {
+                (self.loader.destroy_context)(&mut self.swapchain_context, std::ptr::null());
+            }
+            self.swapchain_context = std::ptr::null_mut();
+        }
+        if self.proxy_alive {
+            unsafe {
+                (*(self.proxy as *mut IDXGISwapChain4)).Release();
+            }
+            self.proxy_alive = false;
+        }
+    }
+}
+
+impl FrameGeneration {
+    /// Create the frame generation pipeline for `hwnd` at `display_extent`.
+    ///
+    /// The caller must have destroyed the wgpu surface already: DX12 allows
+    /// exactly one swapchain per hwnd.
+    ///
+    /// # Safety
+    /// `hwnd` must be a valid window handle for this thread's process.
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        sdk_dir: &str,
+        hwnd: *mut c_void,
+        render_extent: (u32, u32),
+        display_extent: (u32, u32),
+        surface_format: wgpu::TextureFormat,
+        ui_format: wgpu::TextureFormat,
+    ) -> Result<FrameGeneration, String> {
+        let _ = queue;
+        let loader = FfxLoader::load(sdk_dir)?;
+        let (raw_device, raw_queue) = raw_dx12(device)?;
+        let device_ptr = raw_device.as_mut_ptr() as *mut c_void;
+        let queue_ptr = raw_queue.as_mut_ptr() as *mut c_void;
+
+        // Mirror wgpu's own swapchain format choice: UNORM backbuffer, and
+        // the sRGB conversion happens in the final composite (the caller uses
+        // the present-encode path). For sRGB-only surfaces we pick the sRGB
+        // format for both instead.
+        let srgb_backbuffer = surface_format.is_srgb();
+        let backbuffer_format = if srgb_backbuffer {
+            DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
+        } else {
+            DXGI_FORMAT_B8G8R8A8_UNORM
+        };
+        let ffx_backbuffer_format = if srgb_backbuffer {
+            FFX_API_SURFACE_FORMAT_B8G8R8A8_SRGB
+        } else {
+            FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM
+        };
+
+        // Enumerate the frame generation providers the loader can reach and
+        // prefer the newest one, mirroring the upscaler's provider selection.
+        let mut count: u64 = 0;
+        let mut probe = FfxQueryDescGetVersions {
+            header: FfxApiHeader::new(super::imp::FFX_API_QUERY_DESC_TYPE_GET_VERSIONS),
+            create_desc_type: FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION,
+            device: device_ptr,
+            output_count: &mut count,
+            version_ids: std::ptr::null_mut(),
+            version_names: std::ptr::null_mut(),
+        };
+        let rc = unsafe { (loader.query)(std::ptr::null_mut(), &mut probe.header) };
+        let mut chosen_version: Option<u64> = None;
+        if rc == super::imp::FFX_API_RETURN_OK && count > 0 {
+            let mut ids = vec![0u64; (count as usize).min(1024)];
+            count = count.min(1024);
+            count = 0;
+            let mut probe = FfxQueryDescGetVersions {
+                header: FfxApiHeader::new(super::imp::FFX_API_QUERY_DESC_TYPE_GET_VERSIONS),
+                create_desc_type: FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION,
+                device: device_ptr,
+                output_count: &mut count,
+                version_ids: ids.as_mut_ptr(),
+                version_names: std::ptr::null_mut(),
+            };
+            let rc = unsafe { (loader.query)(std::ptr::null_mut(), &mut probe.header) };
+            if rc == super::imp::FFX_API_RETURN_OK {
+                ids.truncate(count as usize);
+                chosen_version = choose_version_for_major(&ids, 0);
+                eprintln!(
+                    "[FSR FG] frame generation providers {:?}, selected 0x{:x}",
+                    ids.iter().map(|i| format!("0x{i:x}")).collect::<Vec<_>>(),
+                    chosen_version.unwrap_or(0)
+                );
+            }
+        } else {
+            eprintln!("[FSR FG] provider enumeration returned 0x{rc:x}; the loader will pick");
+        }
+
+        let (allocator, hr) = raw_device.create_command_allocator(d3d12::CmdListType::Direct);
+        if hr < 0 {
+            return Err(format!("create_command_allocator failed (HRESULT 0x{hr:08x})"));
+        }
+        let (list, hr) = raw_device.create_graphics_command_list(
+            d3d12::CmdListType::Direct,
+            &allocator,
+            d3d12::PipelineState::null(),
+            0,
+        );
+        if hr < 0 {
+            return Err(format!("create_graphics_command_list failed (HRESULT 0x{hr:08x})"));
+        }
+        let hr = list.close();
+        if hr < 0 {
+            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+        }
+
+        // --- Create the proxy swapchain. FFX creates the new swapchain
+        // internally using the factory and description we hand it.
+        let mut factory: *mut winapi::shared::dxgi1_4::IDXGIFactory4 = std::ptr::null_mut();
+        let hr = unsafe {
+            dxgi1_3::CreateDXGIFactory2(
+                0,
+                &IDXGIFactory4::uuidof(),
+                &mut factory as *mut *mut _ as *mut *mut c_void,
+            )
+        };
+        if hr < 0 || factory.is_null() {
+            return Err(format!("CreateDXGIFactory2 failed (HRESULT 0x{hr:08x})"));
+        }
+        let (width, height) = display_extent;
+        let mut desc1 = DXGI_SWAP_CHAIN_DESC1 {
+            Width: width,
+            Height: height,
+            Format: backbuffer_format,
+            Stereo: 0,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            BufferCount: 3,
+            Scaling: DXGI_SCALING_STRETCH,
+            SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+            AlphaMode: 0, // DXGI_ALPHA_MODE_UNSPECIFIED
+            Flags: DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
+        };
+        let mut proxy: *mut c_void = std::ptr::null_mut();
+        let mut version = FfxCreateContextDescFrameGenerationSwapChainVersionDX12 {
+            header: FfxApiHeader::new(
+                FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12,
+            ),
+            version: FFX_FRAMEGENERATION_SWAPCHAIN_DX12_VERSION,
+        };
+        let mut swapchain_desc = FfxCreateContextDescFrameGenerationSwapChainForHwndDX12 {
+            header: FfxApiHeader::new(
+                FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12,
+            ),
+            swapchain: &mut proxy,
+            hwnd,
+            desc: &mut desc1,
+            // Windowed mode: the header allows NULL here.
+            fullscreen_desc: std::ptr::null_mut(),
+            dxgi_factory: factory as *mut c_void,
+            game_queue: queue_ptr,
+        };
+        swapchain_desc.header.p_next = &mut version.header as *mut FfxApiHeader;
+        let mut swapchain_context: *mut c_void = std::ptr::null_mut();
+        let rc = unsafe {
+            (loader.create_context)(
+                &mut swapchain_context,
+                &mut swapchain_desc.header as *mut FfxApiHeader,
+                std::ptr::null(),
+            )
+        };
+        unsafe {
+            (*factory).Release();
+        }
+        if rc != super::imp::FFX_API_RETURN_OK || proxy.is_null() {
+            return Err(format!("creating the frame generation swapchain failed (0x{rc:x})"));
+        }
+
+        // --- Create the frame generation context itself.
+        let mut backend = FfxCreateBackendDX12Desc {
+            header: FfxApiHeader::new(super::imp::FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12),
+            device: device_ptr,
+        };
+        let mut fg_version = FfxCreateContextDescFrameGenerationVersion {
+            header: FfxApiHeader::new(
+                FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION,
+            ),
+            version: FFX_FRAMEGENERATION_VERSION,
+        };
+        let mut override_version = FfxOverrideVersion {
+            header: FfxApiHeader::new(super::imp::FFX_API_DESC_TYPE_OVERRIDE_VERSION),
+            version_id: chosen_version.unwrap_or(0),
+        };
+        let mut fg_desc = FfxCreateContextDescFrameGeneration {
+            header: FfxApiHeader::new(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION),
+            flags: FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED,
+            display_size: FfxApiDimensions2D { width, height },
+            max_render_size: FfxApiDimensions2D { width, height },
+            back_buffer_format: ffx_backbuffer_format,
+        };
+        fg_desc.header.p_next = &mut backend.header as *mut FfxApiHeader;
+        if chosen_version.is_some() {
+            override_version.header.p_next = &mut fg_version.header as *mut FfxApiHeader;
+            fg_desc.header.p_next = &mut override_version.header as *mut FfxApiHeader;
+        } else {
+            fg_desc.header.p_next = &mut fg_version.header as *mut FfxApiHeader;
+        }
+        let mut fg_context: *mut c_void = std::ptr::null_mut();
+        let rc = unsafe {
+            (loader.create_context)(
+                &mut fg_context,
+                &mut fg_desc.header as *mut FfxApiHeader,
+                std::ptr::null(),
+            )
+        };
+        if rc != super::imp::FFX_API_RETURN_OK {
+            // Unwind the swapchain context we created before returning.
+            let mut sc_ctx = swapchain_context;
+            unsafe {
+                (loader.destroy_context)(&mut sc_ctx, std::ptr::null());
+                (*(proxy as *mut IDXGISwapChain4)).Release();
+            }
+            return Err(format!("creating the frame generation context failed (0x{rc:x})"));
+        }
+
+        // From here on every fallible step must unwind the FFX contexts and
+        // the proxy swapchain before returning, or we leak the hwnd's only
+        // swapchain slot and the caller cannot recover.
+        let resources = (|| {
+            let compose = unsafe { Self::make_compose(device, &raw_device, display_extent, surface_format)? };
+            let ui = unsafe { Self::make_ui(device, &raw_device, display_extent, ui_format)? };
+            let depth = unsafe { Self::make_depth(device, &raw_device, render_extent)? };
+            let mv = unsafe { Self::make_mv(device, &raw_device, render_extent)? };
+            Ok::<_, String>((compose, ui, depth, mv))
+        })();
+        let (compose, ui, depth, mv) = match resources {
+            Ok(parts) => parts,
+            Err(error) => {
+                let mut fg = fg_context;
+                let mut sc = swapchain_context;
+                unsafe {
+                    let mut disable = FfxConfigureDescFrameGeneration {
+                        header: FfxApiHeader::new(FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION),
+                        swap_chain: proxy,
+                        present_callback: std::ptr::null_mut(),
+                        present_callback_user_context: std::ptr::null_mut(),
+                        frame_generation_callback: std::ptr::null_mut(),
+                        frame_generation_callback_user_context: std::ptr::null_mut(),
+                        frame_generation_enabled: false,
+                        allow_async_workloads: false,
+                        hudless_color: FfxApiResource::EMPTY,
+                        flags: 0,
+                        only_present_generated: false,
+                        generation_rect: FfxApiRect2D {
+                            left: 0,
+                            top: 0,
+                            width: width as i32,
+                            height: height as i32,
+                        },
+                        frame_id: 0,
+                    };
+                    (loader.configure)(&mut fg, &mut disable.header);
+                    (loader.destroy_context)(&mut fg, std::ptr::null());
+                    (loader.destroy_context)(&mut sc, std::ptr::null());
+                    (*(proxy as *mut IDXGISwapChain4)).Release();
+                }
+                return Err(error);
+            }
+        };
+        let mv_pass = FsrMotionVectorPass::new(device);
+
+        Ok(FrameGeneration {
+            loader,
+            raw_device,
+            queue: raw_queue,
+            allocator,
+            list,
+            fg_context,
+            swapchain_context,
+            proxy,
+            proxy_alive: true,
+            size: display_extent,
+            render_extent,
+            srgb_backbuffer,
+            ui_ffx_format: ffx_color_for_format(ui_format),
+            compose,
+            ui,
+            depth,
+            mv,
+            mv_pass,
+            prev_view_proj: None,
+            frame_index: 0,
+        })
+    }
+
+    unsafe fn make_compose(
+        device: &wgpu::Device,
+        raw_device: &d3d12::Device,
+        size: (u32, u32),
+        format: wgpu::TextureFormat,
+    ) -> Result<NativeTexture2D, String> {
+        // UNORM surface: composition happens in the intermediate exactly as
+        // the present-encode path does today; sRGB surface: composition is
+        // direct into this sRGB target, mirroring the sRGB swapchain today.
+        let target_format = format;
+        let dxgi = dxgi_for_format(target_format);
+        NativeTexture2D::create(
+            device,
+            raw_device,
+            "frame generation composition",
+            target_format,
+            dxgi,
+            size,
+            d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        )
+    }
+
+    unsafe fn make_ui(
+        device: &wgpu::Device,
+        raw_device: &d3d12::Device,
+        size: (u32, u32),
+        format: wgpu::TextureFormat,
+    ) -> Result<NativeTexture2D, String> {
+        // egui's pipelines are compiled for the viewer's render format
+        // (sRGB), so the UI surface must be created with exactly that
+        // format or wgpu rejects the pass.
+        NativeTexture2D::create(
+            device,
+            raw_device,
+            "frame generation UI",
+            format,
+            dxgi_for_format(format),
+            size,
+            d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        )
+    }
+
+    unsafe fn make_depth(
+        device: &wgpu::Device,
+        raw_device: &d3d12::Device,
+        render_extent: (u32, u32),
+    ) -> Result<NativeTexture2D, String> {
+        NativeTexture2D::create(
+            device,
+            raw_device,
+            "frame generation depth",
+            wgpu::TextureFormat::R32Float,
+            DXGI_FORMAT_R32_FLOAT,
+            render_extent,
+            d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        )
+    }
+
+    unsafe fn make_mv(
+        device: &wgpu::Device,
+        raw_device: &d3d12::Device,
+        render_extent: (u32, u32),
+    ) -> Result<NativeTexture2D, String> {
+        NativeTexture2D::create(
+            device,
+            raw_device,
+            "frame generation motion vectors",
+            wgpu::TextureFormat::Rg16Float,
+            DXGI_FORMAT_R16G16_FLOAT,
+            render_extent,
+            d3d12_ty::D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        )
+    }
+
+    /// View of the composition target everything except the UI is drawn into.
+    pub fn compose_view(&self) -> wgpu::TextureView {
+        self.compose.texture.create_view(&Default::default())
+    }
+
+    /// View of the separate UI surface (alpha-composited by the swapchain).
+    pub fn ui_view(&self) -> wgpu::TextureView {
+        self.ui.texture.create_view(&Default::default())
+    }
+
+    /// The size of the composition / UI targets.
+    pub fn size(&self) -> (u32, u32) {
+        self.size
+    }
+
+    /// The size of the world render targets the pipeline consumes.
+    pub fn render_extent(&self) -> (u32, u32) {
+        self.render_extent
+    }
+
+    fn configure_desc(&self, enabled: bool) -> FfxConfigureDescFrameGeneration {
+        FfxConfigureDescFrameGeneration {
+            header: FfxApiHeader::new(FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION),
+            swap_chain: self.proxy,
+            present_callback: std::ptr::null_mut(),
+            present_callback_user_context: std::ptr::null_mut(),
+            frame_generation_callback: std::ptr::null_mut(),
+            frame_generation_callback_user_context: std::ptr::null_mut(),
+            frame_generation_enabled: enabled,
+            allow_async_workloads: false,
+            hudless_color: FfxApiResource::EMPTY,
+            flags: 0,
+            only_present_generated: false,
+            generation_rect: FfxApiRect2D {
+                left: 0,
+                top: 0,
+                width: self.size.0 as i32,
+                height: self.size.1 as i32,
+            },
+            frame_id: self.frame_index,
+        }
+    }
+
+    /// Motion-vector pass + frame generation prepare dispatch.
+    ///
+    /// Runs after the world has been rendered (depth texture is ready) and
+    /// before [`FrameGeneration::finish`]. `depth` is the world's reversed-Z
+    /// depth texture at render extent.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        depth: &wgpu::Texture,
+        unjittered_vp: &Mat4,
+        frame_time_ms: f32,
+        reset: bool,
+        jitter: (f32, f32),
+        camera_position: [f32; 3],
+        camera_up: [f32; 3],
+        camera_right: [f32; 3],
+        camera_forward: [f32; 3],
+    ) -> Result<(), String> {
+        let (rw, rh) = self.render_extent;
+
+        // --- wgpu side: raw depth copy + MV pass (same math as FSR).
+        let inv_vp = unjittered_vp.inverse();
+        let prev_vp = self.prev_view_proj.unwrap_or(*unjittered_vp);
+        let params = FsrMvParams {
+            inv_vp: inv_vp.to_cols_array_2d(),
+            prev_vp: prev_vp.to_cols_array_2d(),
+            render_size: [rw as f32, rh as f32],
+            prev_valid: u32::from(self.prev_view_proj.is_some()),
+            pad: 0,
+        };
+        queue.write_buffer(self.mv_pass.params_buffer(), 0, bytemuck::bytes_of(&params));
+        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor {
+            aspect: wgpu::TextureAspect::All,
+            ..Default::default()
+        });
+        let mv_view = self.mv.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let depth_out_view = self
+            .depth
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("framegen motion vector bind group"),
+            layout: self.mv_pass.layout(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&depth_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.mv_pass.params_buffer().as_entire_binding(),
+                },
+            ],
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("framegen motion vector pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &mv_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &depth_out_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(self.mv_pass.pipeline());
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+
+        // --- Native FFX prepare on the same queue, right after wgpu's submit.
+        self.allocator.reset();
+        let hr = self.list.reset(&self.allocator, d3d12::PipelineState::null());
+        if hr < 0 {
+            return Err(format!("ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"));
+        }
+        let barrier = |resource: &d3d12::Resource, before: u32, after: u32| {
+            d3d12::ResourceBarrier::transition(
+                resource.clone(),
+                D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                before,
+                after,
+                D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            )
+        };
+        let barriers = [
+            barrier(&self.depth.resource, D3D12_STATE_RENDER_TARGET, D3D12_STATE_PIXEL_COMPUTE_READ),
+            barrier(&self.mv.resource, D3D12_STATE_RENDER_TARGET, D3D12_STATE_PIXEL_COMPUTE_READ),
+        ];
+        self.list.resource_barrier(&barriers);
+        let mut prepare = FfxDispatchDescFrameGenerationPrepareV2 {
+            header: FfxApiHeader::new(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2),
+            frame_id: self.frame_index,
+            flags: 0,
+            command_list: self.list.as_mut_ptr() as *mut c_void,
+            render_size: FfxApiDimensions2D {
+                width: rw,
+                height: rh,
+            },
+            jitter_offset: FfxApiFloatCoords2D { x: jitter.0, y: jitter.1 },
+            motion_vector_scale: FfxApiFloatCoords2D { x: 1.0, y: 1.0 },
+            frame_time_delta: frame_time_ms.clamp(0.1, 1000.0),
+            reset,
+            camera_near: 1.0,
+            camera_far: 16000.0,
+            camera_fov_angle_vertical: 70f32.to_radians(),
+            view_space_to_meters_factor: 1.0,
+            depth: FfxApiResource::texture2d(
+                &self.depth.resource,
+                FFX_API_SURFACE_FORMAT_R32_FLOAT,
+                rw,
+                rh,
+                super::imp::FFX_API_RESOURCE_USAGE_DEPTHTARGET,
+                FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
+            ),
+            motion_vectors: FfxApiResource::texture2d(
+                &self.mv.resource,
+                FFX_API_SURFACE_FORMAT_R16G16_FLOAT,
+                rw,
+                rh,
+                super::imp::FFX_API_RESOURCE_USAGE_READ_ONLY,
+                FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
+            ),
+            camera_position,
+            camera_up,
+            camera_right,
+            camera_forward,
+        };
+        let rc = unsafe { (self.loader.dispatch)(&mut self.fg_context, &mut prepare.header) };
+        let restore = [
+            barrier(&self.depth.resource, D3D12_STATE_PIXEL_COMPUTE_READ, D3D12_STATE_RENDER_TARGET),
+            barrier(&self.mv.resource, D3D12_STATE_PIXEL_COMPUTE_READ, D3D12_STATE_RENDER_TARGET),
+        ];
+        self.list.resource_barrier(&restore);
+        let hr = self.list.close();
+        if hr < 0 {
+            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+        }
+        self.queue.execute_command_lists(&[self.list.as_list()]);
+        if rc != super::imp::FFX_API_RETURN_OK {
+            return Err(format!("ffxDispatch frame generation prepare failed (0x{rc:x})"));
+        }
+        self.prev_view_proj = Some(*unjittered_vp);
+        Ok(())
+    }
+
+    /// Copy the composition into the proxy backbuffer, register the UI,
+    /// configure frame generation, dispatch the interpolation workload, and
+    /// present through the proxy swapchain.
+    ///
+    /// `ui_visible` must reflect whether the UI was drawn into [`Self::ui_view`]
+    /// this frame; an empty UI resource is registered otherwise.
+    pub fn finish(&mut self, ui_visible: bool, reset: bool) -> Result<(), String> {
+        let (width, height) = self.size;
+        // --- Acquire the current backbuffer.
+        let sc3 = self.proxy as *mut IDXGISwapChain3;
+        let index = unsafe { (*sc3).GetCurrentBackBufferIndex() };
+        let sc = self.proxy as *mut IDXGISwapChain;
+        let mut raw_backbuffer: *mut d3d12_ty::ID3D12Resource = std::ptr::null_mut();
+        let hr = unsafe {
+            (*sc).GetBuffer(
+                index,
+                &d3d12_ty::ID3D12Resource::uuidof(),
+                &mut raw_backbuffer as *mut *mut _ as *mut *mut c_void,
+            )
+        };
+        if hr < 0 || raw_backbuffer.is_null() {
+            return Err(format!("GetBuffer failed (HRESULT 0x{hr:08x})"));
+        }
+        let backbuffer: d3d12::Resource = unsafe { std::mem::transmute(raw_backbuffer) };
+
+        // --- Native copy: composition -> backbuffer.
+        self.allocator.reset();
+        let hr = self.list.reset(&self.allocator, d3d12::PipelineState::null());
+        if hr < 0 {
+            return Err(format!("ID3D12GraphicsCommandList::Reset failed (HRESULT 0x{hr:08x})"));
+        }
+        let barrier = |resource: &d3d12::Resource, before: u32, after: u32| {
+            d3d12::ResourceBarrier::transition(
+                resource.clone(),
+                D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                before,
+                after,
+                D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            )
+        };
+        let barriers = [
+            barrier(&self.compose.resource, D3D12_STATE_RENDER_TARGET, D3D12_STATE_COPY_SRC),
+            barrier(&backbuffer, D3D12_STATE_PRESENT, D3D12_STATE_COPY_DEST),
+        ];
+        self.list.resource_barrier(&barriers);
+        // The d3d12 crate has no safe `CopyResource` wrapper, so call the
+        // COM method on the underlying raw interface directly.
+        unsafe {
+            (*self.list.as_mut_ptr()).CopyResource(
+                backbuffer.as_mut_ptr(),
+                self.compose.resource.as_mut_ptr(),
+            );
+        }
+        let restore = [
+            barrier(&self.compose.resource, D3D12_STATE_COPY_SRC, D3D12_STATE_RENDER_TARGET),
+            barrier(&backbuffer, D3D12_STATE_COPY_DEST, D3D12_STATE_PRESENT),
+        ];
+        self.list.resource_barrier(&restore);
+        let hr = self.list.close();
+        if hr < 0 {
+            return Err(format!("ID3D12GraphicsCommandList::Close failed (HRESULT 0x{hr:08x})"));
+        }
+        self.queue.execute_command_lists(&[self.list.as_list()]);
+
+        // --- Register the UI (or an empty UI resource for frames without it).
+        let ui_resource = if ui_visible {
+            FfxApiResource::texture2d(
+                &self.ui.resource,
+                self.ui_ffx_format,
+                width,
+                height,
+                super::imp::FFX_API_RESOURCE_USAGE_READ_ONLY,
+                FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
+            )
+        } else {
+            FfxApiResource::EMPTY
+        };
+        let mut register = FfxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 {
+            header: FfxApiHeader::new(
+                FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12,
+            ),
+            ui_resource,
+            flags: if ui_visible {
+                FFX_FRAMEGENERATION_UI_COMPOSITION_FLAG_ENABLE_INTERNAL_UI_DOUBLE_BUFFERING
+            } else {
+                0
+            },
+        };
+        let rc = unsafe { (self.loader.configure)(&mut self.swapchain_context, &mut register.header) };
+        if rc != super::imp::FFX_API_RETURN_OK {
+            eprintln!("[FSR FG] registering the UI resource failed (0x{rc:x}); UI may be missing from generated frames");
+        }
+
+        // --- Configure frame generation for this frame.
+        let mut config = self.configure_desc(true);
+        let rc = unsafe { (self.loader.configure)(&mut self.fg_context, &mut config.header) };
+        if rc != super::imp::FFX_API_RETURN_OK {
+            return Err(format!("ffxConfigure frame generation failed (0x{rc:x})"));
+        }
+
+        // --- Record the interpolation dispatch on the command list FFX hands
+        // back for the interpolation texture.
+        let mut interpolation_command_list: *mut c_void = std::ptr::null_mut();
+        let mut query = FfxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 {
+            header: FfxApiHeader::new(
+                FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12,
+            ),
+            p_out_command_list: &mut interpolation_command_list,
+        };
+        let rc = unsafe { (self.loader.query)(&mut self.swapchain_context, &mut query.header) };
+        if rc != super::imp::FFX_API_RETURN_OK || interpolation_command_list.is_null() {
+            return Err(format!("querying the interpolation command list failed (0x{rc:x})"));
+        }
+        let mut interpolation_texture = FfxApiResource::EMPTY;
+        let mut query = FfxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 {
+            header: FfxApiHeader::new(
+                FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12,
+            ),
+            p_out_texture: &mut interpolation_texture,
+        };
+        let rc = unsafe { (self.loader.query)(&mut self.swapchain_context, &mut query.header) };
+        if rc != super::imp::FFX_API_RETURN_OK {
+            return Err(format!("querying the interpolation texture failed (0x{rc:x})"));
+        }
+        let present_color = FfxApiResource::texture2d(
+            &backbuffer,
+            if self.srgb_backbuffer {
+                FFX_API_SURFACE_FORMAT_B8G8R8A8_SRGB
+            } else {
+                FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM
+            },
+            width,
+            height,
+            super::imp::FFX_API_RESOURCE_USAGE_READ_ONLY,
+            FFX_API_RESOURCE_STATE_PRESENT,
+        );
+        let mut dispatch = FfxDispatchDescFrameGeneration {
+            header: FfxApiHeader::new(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION),
+            command_list: interpolation_command_list,
+            present_color,
+            outputs: [interpolation_texture, FfxApiResource::EMPTY, FfxApiResource::EMPTY, FfxApiResource::EMPTY],
+            num_generated_frames: 1,
+            reset,
+            backbuffer_transfer_function: FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SRGB,
+            min_max_luminance: [0.0, 1000.0],
+            generation_rect: FfxApiRect2D {
+                left: 0,
+                top: 0,
+                width: width as i32,
+                height: height as i32,
+            },
+            frame_id: self.frame_index,
+        };
+        let rc = unsafe { (self.loader.dispatch)(&mut self.fg_context, &mut dispatch.header) };
+        if rc != super::imp::FFX_API_RETURN_OK {
+            drop(backbuffer);
+            return Err(format!("ffxDispatch frame generation failed (0x{rc:x})"));
+        }
+
+        // --- Present through the proxy (frame pacing + interpolation).
+        let hr = unsafe { (*sc).Present(1, 0) };
+        if hr < 0 {
+            eprintln!("[FSR FG] present through the frame generation swapchain failed (HRESULT 0x{hr:08x})");
+        }
+        drop(backbuffer);
+        self.frame_index += 1;
+        Ok(())
+    }
+}

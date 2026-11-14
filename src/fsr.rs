@@ -57,7 +57,11 @@
 //! Windows build is the compile authority.
 
 #[cfg(windows)]
+mod fg;
+#[cfg(windows)]
 mod imp;
+#[cfg(windows)]
+pub use fg::*;
 #[cfg(windows)]
 pub use imp::*;
 
@@ -119,3 +123,66 @@ mod imp_stub {
 }
 #[cfg(not(windows))]
 pub use imp_stub::*;
+
+#[cfg(not(windows))]
+mod fg_stub {
+    /// Stub of the frame generation pipeline; always fails to create.
+    pub struct FrameGeneration;
+
+    impl FrameGeneration {
+        #[allow(clippy::too_many_arguments)]
+        pub fn new(
+            _device: &wgpu::Device,
+            _queue: &wgpu::Queue,
+            _sdk_dir: &str,
+            _hwnd: *mut std::ffi::c_void,
+            _render_extent: (u32, u32),
+            _display_extent: (u32, u32),
+            _surface_format: wgpu::TextureFormat,
+            _ui_format: wgpu::TextureFormat,
+        ) -> Result<FrameGeneration, String> {
+            Err("FSR Frame Generation is only supported on Windows with a DX12 backend".to_string())
+        }
+
+        pub fn compose_view(&self) -> wgpu::TextureView {
+            unimplemented!()
+        }
+
+        pub fn ui_view(&self) -> wgpu::TextureView {
+            unimplemented!()
+        }
+
+        pub fn size(&self) -> (u32, u32) {
+            unimplemented!()
+        }
+
+        pub fn render_extent(&self) -> (u32, u32) {
+            unimplemented!()
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub fn prepare(
+            &mut self,
+            _device: &wgpu::Device,
+            _queue: &wgpu::Queue,
+            _depth: &wgpu::Texture,
+            _unjittered_vp: &glam::Mat4,
+            _frame_time_ms: f32,
+            _reset: bool,
+            _jitter: (f32, f32),
+            _camera_position: [f32; 3],
+            _camera_up: [f32; 3],
+            _camera_right: [f32; 3],
+            _camera_forward: [f32; 3],
+        ) -> Result<(), String> {
+            unimplemented!()
+        }
+
+        pub fn finish(&mut self, _ui_visible: bool, _reset: bool) -> Result<(), String> {
+            unimplemented!()
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub use fg_stub::FrameGeneration;
