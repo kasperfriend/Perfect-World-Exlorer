@@ -494,11 +494,8 @@ impl ViewSettings {
         // Settings written by another build (or hand-edited) can hold an
         // upscaler/quality/frame-generator triple this build cannot honour;
         // coerce it to a legal one rather than failing the whole file.
-        let (upscaling, upscale_quality, frame_generation) = crate::upscaling::sanitise(
-            s.upscaling,
-            s.upscale_quality,
-            s.frame_generation,
-        );
+        let (upscaling, upscale_quality, frame_generation) =
+            crate::upscaling::sanitise(s.upscaling, s.upscale_quality, s.frame_generation);
         s.upscaling = upscaling;
         s.upscale_quality = upscale_quality;
         s.frame_generation = frame_generation;
@@ -1095,15 +1092,24 @@ effect_shaft=up\neffect_distance=125.5\nlogging_mask=7\nlogging_dir=C:\\pwe-logs
     fn upscale_settings_round_trip_and_coercion() {
         let defaults = ViewSettings::default();
         assert_eq!(defaults.upscaling, crate::upscaling::UpscaleMethod::Off);
-        assert_eq!(defaults.upscale_quality, crate::upscaling::UpscaleQuality::Quality);
-        assert_eq!(defaults.frame_generation, crate::upscaling::FrameGenMethod::Off);
+        assert_eq!(
+            defaults.upscale_quality,
+            crate::upscaling::UpscaleQuality::Quality
+        );
+        assert_eq!(
+            defaults.frame_generation,
+            crate::upscaling::FrameGenMethod::Off
+        );
         assert_eq!(defaults.upscale_sdk_dir, "");
         let s = ViewSettings::decode(
             "upscaling=dlss\nupscale_quality=performance\nframe_generation=dlss\n\
              upscale_sdk_dir=D:\\vendor-sdks\n",
         );
         assert_eq!(s.upscaling, crate::upscaling::UpscaleMethod::Dlss);
-        assert_eq!(s.upscale_quality, crate::upscaling::UpscaleQuality::Performance);
+        assert_eq!(
+            s.upscale_quality,
+            crate::upscaling::UpscaleQuality::Performance
+        );
         assert_eq!(s.frame_generation, crate::upscaling::FrameGenMethod::Dlss);
         assert_eq!(s.upscale_sdk_dir, "D:\\vendor-sdks");
         assert_eq!(ViewSettings::decode(&s.encode()), s);
@@ -1112,21 +1118,39 @@ effect_shaft=up\neffect_distance=125.5\nlogging_mask=7\nlogging_dir=C:\\pwe-logs
             "upscaling=vendorx\nupscale_quality=gaga\nframe_generation=vendorx\n",
         );
         assert_eq!(unknown.upscaling, crate::upscaling::UpscaleMethod::Off);
-        assert_eq!(unknown.upscale_quality, crate::upscaling::UpscaleQuality::Quality);
-        assert_eq!(unknown.frame_generation, crate::upscaling::FrameGenMethod::Off);
+        assert_eq!(
+            unknown.upscale_quality,
+            crate::upscaling::UpscaleQuality::Quality
+        );
+        assert_eq!(
+            unknown.frame_generation,
+            crate::upscaling::FrameGenMethod::Off
+        );
         // XeSS has no Ultra Performance mode: coerced to Quality.
         let xess = ViewSettings::decode("upscaling=xess\nupscale_quality=ultraperformance\n");
-        assert_eq!(xess.upscale_quality, crate::upscaling::UpscaleQuality::Quality);
+        assert_eq!(
+            xess.upscale_quality,
+            crate::upscaling::UpscaleQuality::Quality
+        );
         // Cross-vendor XeSS frame generation is not exposed: coerced to Off.
         let cross = ViewSettings::decode("upscaling=fsr\nframe_generation=xess\n");
-        assert_eq!(cross.frame_generation, crate::upscaling::FrameGenMethod::Off);
+        assert_eq!(
+            cross.frame_generation,
+            crate::upscaling::FrameGenMethod::Off
+        );
         // DLSS + DLSS FG is legal and survives.
         let legal = ViewSettings::decode("upscaling=dlss\nframe_generation=dlss\n");
-        assert_eq!(legal.frame_generation, crate::upscaling::FrameGenMethod::Dlss);
+        assert_eq!(
+            legal.frame_generation,
+            crate::upscaling::FrameGenMethod::Dlss
+        );
         // Mixed case tokens parse.
         let mixed = ViewSettings::decode("upscaling=FSR\nframe_generation=FSR\n");
         assert_eq!(mixed.upscaling, crate::upscaling::UpscaleMethod::Fsr);
-        assert_eq!(mixed.frame_generation, crate::upscaling::FrameGenMethod::Fsr);
+        assert_eq!(
+            mixed.frame_generation,
+            crate::upscaling::FrameGenMethod::Fsr
+        );
         // Case-insensitive parse keeps the rest of the file intact.
         assert_eq!(ViewSettings::decode(&mixed.encode()), mixed);
     }

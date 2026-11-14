@@ -1,4 +1,4 @@
-#![cfg_attr(windows, windows_subsystem = "windows")]
+mod upscaling;#![cfg_attr(windows, windows_subsystem = "windows")]
 use flate2::read::ZlibDecoder;
 use std::{
     env, fs,
@@ -106,7 +106,7 @@ mod post_gpu;
 mod post_reference;
 mod present_encode;
 mod render_scale;
-mod upscaling;
+
 #[allow(dead_code)]
 mod scene;
 #[allow(dead_code)]

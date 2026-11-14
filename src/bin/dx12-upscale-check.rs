@@ -12,7 +12,7 @@
 #[path = "../upscaling.rs"]
 mod upscaling;
 
-use upscaling::{FrameGenMethod, GpuFacts, Upscaler, UpscaleMethod, UpscaleQuality};
+use upscaling::{FrameGenMethod, GpuFacts, UpscaleMethod, UpscaleQuality, Upscaler};
 
 fn adapter_facts() -> Option<GpuFacts> {
     let instance = wgpu::Instance::default();
@@ -121,8 +121,7 @@ fn main() {
             println!();
             println!("Frame generation support (with Upscaling = Off):");
             for method in FrameGenMethod::ALL {
-                let support =
-                    upscaling::support_framegen(method, UpscaleMethod::Off, &gpu, &sdk);
+                let support = upscaling::support_framegen(method, UpscaleMethod::Off, &gpu, &sdk);
                 println!("  {} — {}", method.label(), describe(&support));
             }
             println!();
@@ -131,8 +130,7 @@ fn main() {
                 println!("  {}:", method.label());
                 for quality in UpscaleQuality::ALL {
                     let available = upscaling::quality_available(method, quality);
-                    let (w, h) =
-                        upscaling::provider_extent(method, quality, 1920, 1080, 8192);
+                    let (w, h) = upscaling::provider_extent(method, quality, 1920, 1080, 8192);
                     println!(
                         "    {} — internal {}×{} (factor {:.4}){}",
                         quality.label(),
