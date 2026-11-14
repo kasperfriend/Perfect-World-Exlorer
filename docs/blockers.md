@@ -55,14 +55,18 @@ done.
 - **Step:** Phase 3/4 — integrate NVIDIA DLSS/Streamline, AMD FSR, Intel XeSS
   SDKs; Phase 5 — redistribution terms.
 - **Error:** the only reachable hosts are github.com, codeload.github.com,
-  api.github.com, registry.npmjs.org, pypi.org, files.pythonhosted.org. Vendor
-  developer portals (developer.nvidia.com, amd.com/gpuopen, intel.com) are not
-  reachable. DLSS in particular is not published as a downloadable SDK on a
-  reachable host.
+  api.github.com, registry.npmjs.org, pypi.org, files.pythonhosted.org. AMD's
+  FSR SDK is on a reachable host (github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK)
+  and its signed DX12 binaries were vendored into `sdk/` at the user's request
+  (2026-11-14): `amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll`,
+  `amd_fidelityfx_framegeneration_dx12.dll` (FSR SDK v2.4.0). NVIDIA's DLSS SDK
+  is not published on a reachable host and is not available at all.
 - **Tried:** reachability is defined by the sandbox proxy; no fetch to vendor
   hosts was attempted beyond the allowlist (they are unreachable).
-- **Workaround:** **no SDK binaries are committed** (they would also violate
-  the packaging rule for non-redistributable DLLs). Instead:
+- **Workaround:** **no proprietary SDK binaries are committed**. The only
+  binaries in the repository are the AMD FSR SDK 2.4.0 signed DX12 DLLs
+  (MIT-style terms, notices reproduced in `sdk/AMD_FidelityFX-SDK-2.4.0-LICENSE.md`,
+  `THIRD_PARTY_NOTICES.md`; SHA256 recorded there). Instead:
   - `src/upscaling.rs` implements the full option state machine, pairing
     table, jitter sequence, per-provider internal resolutions and quality
     modes — all unit-tested logic, compiled into the viewer.
@@ -71,10 +75,14 @@ done.
     `<exe>\sdk\`) for the documented DLL names and reports what it finds;
     every provider stays disabled with a visible reason until a real SDK is
     present.
-  - The actual vendor FFI calls (`slDLSSInit`, `ffxFsr2ContextCreate`,
-    `xessContextCreate`, …) are **not** implemented, because the SDKs could
-    not be obtained, compiled against or executed anywhere in this
-    environment — writing them untested would be fabrication, not
+  - The actual vendor FFI calls (`slDLSSInit`, `ffxCreateContext`,
+    `xessContextCreate`, …) are **not** implemented: even with the AMD DLLs
+    now present, this wgpu 0.19.x backend cannot reach the native
+    `ID3D12Device*`/`ID3D12Resource*` handles they require (no `as_hal`, no
+    `wgpu::hal` re-export; `HalApi` is internal to `wgpu-core`), so the FSR C
+    API cannot be dispatched from this renderer at all without a backend
+    change (native DX12, or a wgpu upgrade). NVIDIA/Intel SDKs still could
+    not be obtained. Writing untested FFI would be fabrication, not
     integration. The Graphics tab says so verbatim: "Vendor SDK integration
     is not included in this build; an active provider renders through the
     fallback path at its recommended internal resolution (see README →
