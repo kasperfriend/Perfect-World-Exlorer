@@ -71,6 +71,16 @@
 //! the survivors are written opaque with depth on. `scenery_pipeline` stays
 //! unblended; `Blend`/`AlphaTest` below document the client, while `kind` is
 //! the only field the production renderer consumes.
+//!
+//! One band is exempt: the `.sdr.` water/lava curtains (the downward-scroll
+//! scripts `瀑布`, `瀑布细长`, `青云山小瀑布`, `岩浆`, kind 2.02/2.12) are
+//! the client's translucent sheets and read as opaque white through a cutout —
+//! the reported "waterfalls are a white plain texture with no transparency".
+//! They draw in a second pass (`fs_sdr` + `sdr_blend_pipeline` in `gpu.rs`)
+//! with the client's `SRCALPHA`/`INVSRCALPHA` and surface alpha
+//! `texture.a * diffuse.a`, depth *write* off so the lily-pad/canopy failures
+//! above cannot return; the depth test still occludes the sheet behind nearer
+//! geometry.
 
 /// Mesh versions the reader and this draw state were inspected against.
 pub const INSPECTED_MESH_VERSIONS: [u32; 2] = [0x1000_0004, 0x1000_0005];
@@ -487,22 +497,36 @@ mod tests {
         // depth) or the depth-writing scenery pass breaks the water refraction
         // guard (square lily pads) and hides a canopy behind a nearer card's
         // transparent gaps. This is the viewer's deliberate deviation from the
-        // client's ALPHATEST(0) + blend state documented above.
+        // client's ALPHATEST(0) + blend state documented above — with one
+        // exception: the `.sdr.` water/lava band (kind 2.02/2.12) is dropped
+        // from this pass and drawn by `fs_sdr` in the blended pass below.
         assert!(
-            gpu.contains("if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,"),
-            "textured baked meshes must share the cutout discard"
+            gpu.contains("if !sdr_blend_band(i.kind) && ((i.kind>1.5 && i.kind<2.5)"),
+            "textured baked meshes must share the cutout discard outside the sdr band"
         );
         // Survivors are opaque, not the sampled texture alpha through a
         // SRCALPHA blend, and the scenery pipeline must stay unblended: a
         // surviving partial-alpha texel would otherwise still write depth
-        // against the pre-water colour.
+        // against the pre-water colour. The band's `select` returns the
+        // client's `texture.a * diffuse.a` for its own pass alone.
         assert!(
-            gpu.contains("bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);"),
-            "textured baked meshes must render opaque after the cutout"
+            gpu.contains("select(1.,raw_tex.a*i.opacity,sdr_blend_band(i.kind))"),
+            "textured baked meshes must render opaque after the cutout outside the band"
         );
+        let scenery_start = gpu.find("scenery GPU pipeline").unwrap();
+        let scenery_end = gpu.find("sdr blend GPU pipeline").unwrap();
+        let scenery = &gpu[scenery_start..scenery_end];
         assert!(
-            !gpu.contains("wgpu::BlendFactor::SrcAlpha"),
-            "scenery pipeline must not blend"
+            scenery.contains("blend: None") && !scenery.contains("BlendFactor"),
+            "the scenery pipelines must stay unblended"
+        );
+        // The band's own pass blends with the client's SRCALPHA/INVSRCALPHA
+        // while keeping depth write off — the lily-pad regression the cutout
+        // exists to avoid cannot return through a depth-writing translucent
+        // card drawn after the world.
+        assert!(
+            gpu.contains("entry_point: \"fs_sdr\"") && gpu.contains("depth_write_enabled: false"),
+            "the sdr band must draw in its own blended, depth-write-off pass"
         );
         // The classified kinds must land on the intended side of the shader's
         // single-sided winding band.
