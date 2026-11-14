@@ -28,6 +28,31 @@ struct Record {
     size: usize,
     hash: [u8; 32],
 }
+
+/// Losslessly encoded, compressed terrain payload ready for ordered cache I/O.
+pub struct PackedBlock {
+    hash: [u8; 32],
+    bytes: Vec<u8>,
+}
+
+pub fn prepare_block(
+    heights: &[f32],
+    normals: &[[i8; 3]],
+    side: usize,
+) -> Result<PackedBlock, String> {
+    let cells = side.checked_mul(side).ok_or("terrain block size overflow")?;
+    if side == 0 || heights.len() != cells || normals.len() != cells {
+        return Err("invalid terrain cache block".into());
+    }
+    let raw = encode(heights, normals, side);
+    let hash = Sha256::digest(&raw).into();
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(&raw).map_err(|e| e.to_string())?;
+    Ok(PackedBlock {
+        hash,
+        bytes: encoder.finish().map_err(|e| e.to_string())?,
+    })
+}
 struct Page {
     heights: Vec<f32>,
     normals: Vec<[i8; 3]>,
@@ -486,24 +511,34 @@ impl Builder {
         if self.records[id].is_some() {
             return Err("duplicate terrain cache block".into());
         }
-        let raw = encode(heights, normals, self.side);
-        let hash = Sha256::digest(&raw).into();
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
-        encoder.write_all(&raw).map_err(|e| e.to_string())?;
-        let packed = encoder.finish().map_err(|e| e.to_string())?;
+        self.block_packed(bx, by, prepare_block(heights, normals, self.side)?)
+    }
+    pub fn block_packed(
+        &mut self,
+        bx: usize,
+        by: usize,
+        packed: PackedBlock,
+    ) -> Result<(), String> {
+        if self.resident.is_some() || bx >= self.width / self.side || by >= self.height / self.side {
+            return Err("invalid packed terrain cache block".into());
+        }
+        let id = by * (self.width / self.side) + bx;
+        if self.records[id].is_some() {
+            return Err("duplicate terrain cache block".into());
+        }
         let file = self.file.as_mut().unwrap();
         let mut header = (id as u64).to_le_bytes().to_vec();
-        header.extend_from_slice(&(packed.len() as u64).to_le_bytes());
+        header.extend_from_slice(&(packed.bytes.len() as u64).to_le_bytes());
         file.write_all(&header)
-            .and_then(|_| file.write_all(&packed))
+            .and_then(|_| file.write_all(&packed.bytes))
             .map_err(|e| format!("terrain cache write: {e}"))?;
         self.hash.update(&header);
-        self.hash.update(&packed);
-        let offset = file.stream_position().map_err(|e| e.to_string())? - packed.len() as u64;
+        self.hash.update(&packed.bytes);
+        let offset = file.stream_position().map_err(|e| e.to_string())? - packed.bytes.len() as u64;
         self.records[id] = Some(Record {
             offset,
-            size: packed.len(),
-            hash,
+            size: packed.bytes.len(),
+            hash: packed.hash,
         });
         Ok(())
     }

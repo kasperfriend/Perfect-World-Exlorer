@@ -1,7 +1,19 @@
 //! Retain ECWLD model placements and shared model dependencies. Loading an
 //! asset does not choose an action namespace or invent an animation schedule.
-use crate::{ecmodel, model_asset::ModelAsset, scene::SceneModel};
-use std::{collections::HashMap, fs::File, path::Path};
+use crate::{
+    ecmodel,
+    model_asset::{ModelAsset, TrackCache},
+    scene::SceneModel,
+};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    path::Path,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 pub struct Instance {
     pub placement: SceneModel,
@@ -71,23 +83,129 @@ impl Assets {
     }
     pub fn open(element: &Path, placements: Vec<SceneModel>) -> Result<Self, String> {
         if placements.is_empty() {
-            return Ok(Self::load_with(placements, |_| unreachable!()));
+            return Ok(Self::default());
         }
-        let mut file =
-            File::open(element.join("models.pck")).map_err(|e| format!("models.pck: {e}"))?;
+        let archive = element.join("models.pck");
+        let mut index_file =
+            File::open(&archive).map_err(|e| format!("models.pck: {e}"))?;
         let mut entries = HashMap::new();
-        for entry in crate::pck::directory(&mut file)? {
+        for entry in crate::pck::directory(&mut index_file)? {
             let name = ecmodel::normalize(&entry.name);
             if entries.insert(name.clone(), entry).is_some() {
                 return Err(format!("duplicate normalized models.pck entry: {name}"));
             }
         }
-        Ok(Self::load_with(placements, |path| {
-            let entry = entries
-                .get(path)
-                .ok_or_else(|| format!("missing models.pck entry: {path}"))?;
-            crate::pck::read_entry(&mut file, entry)
-        }))
+        let mut seen = HashSet::new();
+        let paths: Vec<String> = placements
+            .iter()
+            .map(|placement| ecmodel::normalize(&placement.path))
+            .filter(|path| seen.insert(path.clone()))
+            .collect();
+        let entry_index = Arc::new(entries);
+        let next = AtomicUsize::new(0);
+        let worker_count = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .min(4)
+            .min(paths.len());
+        let (send, receive) = std::sync::mpsc::sync_channel(worker_count * 2);
+        let loaded = std::thread::scope(|scope| -> Result<Vec<_>, String> {
+            for _ in 0..worker_count {
+                let send = send.clone();
+                let archive = &archive;
+                let entries = Arc::clone(&entry_index);
+                let next = &next;
+                let paths = &paths;
+                scope.spawn(move || {
+                    let mut file = File::open(archive);
+                    let open_error = file.as_ref().err().map(ToString::to_string);
+                    let mut tracks = TrackCache::default();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(path) = paths.get(index) else {
+                            break;
+                        };
+                        let asset = if let Some(error) = &open_error {
+                            Err(format!("models.pck: {error}"))
+                        } else {
+                            ModelAsset::load_cached(
+                                path,
+                                |dependency| {
+                                    let entry = entries.get(dependency).ok_or_else(|| {
+                                        format!("missing models.pck entry: {dependency}")
+                                    })?;
+                                    crate::pck::read_entry(file.as_mut().unwrap(), entry)
+                                },
+                                &mut tracks,
+                            )
+                        };
+                        if send.send((index, asset)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            drop(send);
+            let mut loaded: Vec<Option<Result<ModelAsset, String>>> =
+                (0..paths.len()).map(|_| None).collect();
+            for _ in 0..paths.len() {
+                let (index, asset) = receive
+                    .recv()
+                    .map_err(|_| "world-model workers stopped early".to_string())?;
+                loaded[index] = Some(asset);
+            }
+            Ok(loaded
+                .into_iter()
+                .map(|asset| asset.expect("each unique model path is assigned once"))
+                .collect())
+        })?;
+        let loaded_by_path = paths.into_iter().zip(loaded).collect();
+        Ok(Self::from_loaded(placements, loaded_by_path))
+    }
+
+    fn from_loaded(
+        placements: Vec<SceneModel>,
+        mut loaded: HashMap<String, Result<ModelAsset, String>>,
+    ) -> Self {
+        let mut result = Self::default();
+        let mut cache: HashMap<String, Option<usize>> = HashMap::new();
+        for placement in placements {
+            let path = ecmodel::normalize(&placement.path);
+            let asset = if let Some(index) = cache.get(&path) {
+                *index
+            } else {
+                let index = match loaded.remove(&path).unwrap_or_else(|| {
+                    Err(format!("missing parallel world-model result: {path}"))
+                }) {
+                    Ok(asset) => {
+                        let index = result.assets.len();
+                        result.assets.push(asset);
+                        Some(index)
+                    }
+                    Err(error) => {
+                        result.failures.push(error);
+                        None
+                    }
+                };
+                cache.insert(path, index);
+                index
+            };
+            if let Some(asset) = asset {
+                let action = result.assets[asset]
+                    .descriptor
+                    .scene_action(&placement.action);
+                let playback = crate::model_playback::Playback::new(&result.assets[asset], action);
+                result.instances.push(Instance {
+                    placement,
+                    asset,
+                    action,
+                    playback,
+                });
+            } else {
+                result.unloaded.push(placement);
+            }
+        }
+        result
     }
 }
 /// 1.4.2 0x6d4304 -> 0x7b0d60 -> 0x788960. Normalize forward/up

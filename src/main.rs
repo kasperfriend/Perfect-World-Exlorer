@@ -403,9 +403,14 @@ struct TileDecode<'a> {
     blocks: usize,
 }
 
-/// One decoded block on its way back from a worker: its index in the tile and,
-/// when the decode succeeded, the `grid * grid` arrays.
-type BlockPayload = (usize, Result<(Vec<f32>, Vec<[i8; 3]>), String>);
+/// Decoded terrain data returned by the block workers. Paged builds compress
+/// each block on the worker; resident builds keep the raw arrays for direct copy.
+enum PreparedTerrainBlock {
+    Resident(Vec<f32>, Vec<[i8; 3]>),
+    Paged(terrain_store::PackedBlock),
+}
+
+type BlockPayload = (usize, Result<PreparedTerrainBlock, String>);
 
 /// Per-block scratch, owned by whoever decodes a block.
 ///
@@ -444,9 +449,27 @@ fn decode_block_owned(
 /// so the builder sees a bit-identical sequence to the old sequential loop.
 /// `insert` runs on the calling thread, which is why the builder needs no
 /// locking. `PW_TERRAIN_THREADS=1` restores the plain loop.
-fn decode_blocks<F>(tile: &TileDecode, threads: usize, mut insert: F) -> Result<(), String>
+fn prepare_terrain_block(
+    heights: Vec<f32>,
+    normals: Vec<[i8; 3]>,
+    side: usize,
+    paged: bool,
+) -> Result<PreparedTerrainBlock, String> {
+    if paged {
+        terrain_store::prepare_block(&heights, &normals, side).map(PreparedTerrainBlock::Paged)
+    } else {
+        Ok(PreparedTerrainBlock::Resident(heights, normals))
+    }
+}
+
+fn decode_blocks<F>(
+    tile: &TileDecode,
+    threads: usize,
+    paged: bool,
+    mut insert: F,
+) -> Result<(), String>
 where
-    F: FnMut(usize, &[f32], &[[i8; 3]]) -> Result<(), String>,
+    F: FnMut(usize, PreparedTerrainBlock) -> Result<(), String>,
 {
     if tile.blocks == 0 {
         return Ok(());
@@ -454,13 +477,19 @@ where
     if threads.min(tile.blocks) <= 1 {
         let mut scratch = BlockScratch::default();
         for bi in 0..tile.blocks {
-            decode_block(tile, &mut scratch, bi)?;
-            insert(bi, &scratch.heights, &scratch.normals)?;
+            let (heights, normals) = decode_block_owned(tile, &mut scratch, bi)?;
+            insert(
+                bi,
+                prepare_terrain_block(heights, normals, tile.grid, paged)?,
+            )?;
         }
         return Ok(());
     }
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let (tx, rx) = std::sync::mpsc::channel::<BlockPayload>();
+    // Backpressure keeps out-of-order completed block arrays bounded when an
+    // early block is unusually slow, instead of retaining most of a tile in RAM.
+    let capacity = threads.min(tile.blocks).saturating_mul(2).max(1);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<BlockPayload>(capacity);
     std::thread::scope(|scope| -> Result<(), String> {
         for _ in 0..threads.min(tile.blocks) {
             let tx = tx.clone();
@@ -472,7 +501,11 @@ where
                     if bi >= tile.blocks {
                         break;
                     }
-                    let decoded = decode_block_owned(tile, &mut scratch, bi);
+                    let decoded = decode_block_owned(tile, &mut scratch, bi).and_then(
+                        |(heights, normals)| {
+                            prepare_terrain_block(heights, normals, tile.grid, paged)
+                        },
+                    );
                     let failed = decoded.is_err();
                     if tx.send((bi, decoded)).is_err() || failed {
                         break;
@@ -493,8 +526,8 @@ where
                 }
                 Err(e) => return Err(e),
             }
-            while let Some((heights, normals)) = pending.remove(&next_expected) {
-                insert(next_expected, &heights, &normals)?;
+            while let Some(block) = pending.remove(&next_expected) {
+                insert(next_expected, block)?;
                 next_expected += 1;
                 if next_expected >= tile.blocks {
                     break;
@@ -842,64 +875,105 @@ fn terrain(
                 .unwrap_or(1)
         });
     // A warm start already owns the grid, so the block loop is skipped entirely.
+    // On a cold build, keep one bounded read-ahead tile in flight: the next file
+    // read overlaps the current tile's parallel decompression without retaining
+    // the full map's compressed bytes or changing builder insertion order.
     if terrain_pages.is_some() {
-        for (si, name) in names.iter().enumerate() {
-            if name.contains('/') || name.contains('\\') || name.contains("..") {
-                return Err("unsafe subterrain path".into());
-            }
-            let data =
-                fs::read(dir.join(format!("{name}.t2bk"))).map_err(|e| format!("{name}: {e}"))?;
-            if let Some(identity) = &mut cold_identity {
-                identity.add_tile(name, &data);
-            }
-            if u32at(&data, 0)? != 0x54424b42 {
-                return Err(format!("{name}: invalid T2BK"));
-            };
-            let v = u32at(&data, 4)?;
-            if !(2..=6).contains(&v) {
-                return Err(format!("{name}: unsupported version {v}"));
-            }
-            let n = u32at(&data, 8)? as usize;
-            if n < per * per {
-                return Err(format!("{name}: missing blocks"));
-            };
-            let flags = if v < 5 {
-                if data[12] != 0 {
-                    0x15
-                } else {
-                    0
+        std::thread::scope(|scope| -> Result<(), String> {
+            let (send, receive) = std::sync::mpsc::sync_channel::<
+                (usize, String, Result<Vec<u8>, String>),
+            >(1);
+            let reader_dir = dir.clone();
+            let reader_names = &names;
+            scope.spawn(move || {
+                for (si, name) in reader_names.iter().enumerate() {
+                    let result = if name.contains('/')
+                        || name.contains('\\')
+                        || name.contains("..")
+                    {
+                        Err("unsafe subterrain path".to_string())
+                    } else {
+                        fs::read(reader_dir.join(format!("{name}.t2bk")))
+                            .map_err(|e| format!("{name}: {e}"))
+                    };
+                    let failed = result.is_err();
+                    if send.send((si, name.clone(), result)).is_err() || failed {
+                        break;
+                    }
                 }
-            } else {
-                data[12]
-            };
-            // Validate the whole offset table and section layout before reading any
-            // heights: this is what catches a flags bit the reader does not implement,
-            // and it is what found the missing per-vertex colour section.
-            let block_layout =
-                terrain_block::layout(&data, grid).map_err(|e| format!("{name}: {e}"))?;
-            let tile = TileDecode {
-                data: &data,
-                name,
-                version: v,
-                flags,
-                layout: &block_layout,
-                grid,
-                sin_table: &sin_table,
-                cos_table: &cos_table,
-                blocks: per * per,
-            };
-            decode_blocks(&tile, threads, |bi, heights, normals| {
-                let br = (si / subs_x) * per + bi / per;
-                let bc = (si % subs_x) * per + bi % per;
-                terrain_pages
-                    .as_mut()
-                    .expect("terrain builder present while parsing blocks")
-                    .block(bc, br, heights, normals)
-            })?;
-            eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
-            #[cfg(windows)]
-            windows_setup::loading_progress(format!("Loading terrain tiles {}/{}", si + 1, count));
-        }
+            });
+            for expected in 0..count {
+                let (si, name, data) = receive
+                    .recv()
+                    .map_err(|_| "terrain tile reader stopped early".to_string())?;
+                if si != expected {
+                    return Err("terrain tile reader returned out of order".into());
+                }
+                let data = data?;
+                if let Some(identity) = &mut cold_identity {
+                    identity.add_tile(&name, &data);
+                }
+                if u32at(&data, 0)? != 0x54424b42 {
+                    return Err(format!("{name}: invalid T2BK"));
+                };
+                let v = u32at(&data, 4)?;
+                if !(2..=6).contains(&v) {
+                    return Err(format!("{name}: unsupported version {v}"));
+                }
+                let n = u32at(&data, 8)? as usize;
+                if n < per * per {
+                    return Err(format!("{name}: missing blocks"));
+                };
+                let flags = if v < 5 {
+                    if data[12] != 0 {
+                        0x15
+                    } else {
+                        0
+                    }
+                } else {
+                    data[12]
+                };
+                // Validate the whole offset table and section layout before reading any
+                // heights: this is what catches a flags bit the reader does not implement,
+                // and it is what found the missing per-vertex colour section.
+                let block_layout =
+                    terrain_block::layout(&data, grid).map_err(|e| format!("{name}: {e}"))?;
+                let tile = TileDecode {
+                    data: &data,
+                    name: &name,
+                    version: v,
+                    flags,
+                    layout: &block_layout,
+                    grid,
+                    sin_table: &sin_table,
+                    cos_table: &cos_table,
+                    blocks: per * per,
+                };
+                decode_blocks(&tile, threads, !all_to_vram, |bi, block| {
+                    let br = (si / subs_x) * per + bi / per;
+                    let bc = (si % subs_x) * per + bi % per;
+                    let builder = terrain_pages
+                        .as_mut()
+                        .expect("terrain builder present while parsing blocks");
+                    match block {
+                        PreparedTerrainBlock::Resident(heights, normals) => {
+                            builder.block(bc, br, &heights, &normals)
+                        }
+                        PreparedTerrainBlock::Paged(packed) => {
+                            builder.block_packed(bc, br, packed)
+                        }
+                    }
+                })?;
+                eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
+                #[cfg(windows)]
+                windows_setup::loading_progress(format!(
+                    "Loading terrain tiles {}/{}",
+                    si + 1,
+                    count
+                ));
+            }
+            Ok(())
+        })?;
     }
     if let Some(identity) = cold_identity.take() {
         let identity = identity.finish();
