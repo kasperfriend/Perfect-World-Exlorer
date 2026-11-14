@@ -1,6 +1,6 @@
 # Perfect World Explorer
 
-An experimental, GPU-based, free-flight viewer for the **main world** of a Perfect World 1.4.2 client. It reads world data from a client you provide; it is not a game client, editor, server, or gameplay implementation.
+An experimental, GPU-based, free-flight viewer for a Perfect World 1.4.2 client. It opens the main world by default and can load the client's readable instance maps from **Escape → Teleport List → Change world**. It reads world data from a client you provide; it is not a game client, editor, server, or gameplay implementation.
 
 > **Work in progress:** visual parity is not complete. Water, lighting, sky, vegetation and other systems contain approximations; ordinary animated world models now render with scene lights in main and clipped water passes, but complete model/material coverage and general visual effects remain unfinished. No complete side-by-side game comparison has established parity. See [Findings](Findings/README.md) for evidence, caveats and open work.
 
@@ -14,7 +14,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Authored world effects from the map's own ECWLD records and ECM model events: waterfalls, fire, mist, glows and sun shafts, positioned from the scene, played on the scene clock and textured from `gfx.pck`. A texture that an effect names but the archive lacks draws in its authored vertex colour rather than removing the effect.
 - Client SpeedTree geometry through the client's 32-bit runtime, with sampled leaf motion and approximate LOD; locally streamed grass from client placements and meshes.
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
-- Searchable teleport destinations, original and rendered world maps, a minimap, zone notices, Windows zone music, experimental stereo zone ambience and experimental positional world effects.
+- Searchable teleport destinations, a named world selector for all readable client maps, original and rendered world maps, a minimap, zone notices, Windows zone music, experimental stereo zone ambience and experimental positional world effects.
 - Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample.
 - An optional **Modules** add-on list. **Walker** loads a clothed native player character and supports terrain walking, source-backed run/jump mechanics, and first- or third-person cameras. Its integrated **Character Designer** reads PW 1.4.2 v27 catalogs and native presets, edits body/face/equipment data, saves GBK presets, and rebuilds the same spawned Walker. The executable discovers installed module packages beside itself; modules own their state and do not change persisted core settings.
 
@@ -61,7 +61,7 @@ The executable resolves `Modules` relative to its own location, not the current 
 | Arrow keys | Look |
 | M | Open world map |
 
-Use **Escape → Teleport List** to search destinations. The world map offers original client tiles or a top-down render of the currently loaded world, mouse-wheel zoom, and optional click-to-teleport. Whole-world static objects need to finish loading to appear in the rendered map.
+Use **Escape → Teleport List** to choose a world and search destinations. The drop box at the top shows the currently loaded map and its name; its list contains every readable `maps/<id>` folder, named from the client's own `configs.pck → configs/instance.txt` when available. Select another map and press **Change world**: settings are saved, the viewer starts a fresh instance with `--world <id>`, and that map's terrain, scene, destinations, precincts, minimap tiles and map aspect are loaded. Instance maps are separate coordinate spaces, so main-world `world_targets.txt` rows and the mainland's original full-map tiles are not applied to them. The world map offers original client tiles for the main world or a top-down render of the currently loaded world, mouse-wheel zoom, and optional click-to-teleport. Whole-world static objects need to finish loading to appear in the rendered map.
 
 ### Walker add-on
 
