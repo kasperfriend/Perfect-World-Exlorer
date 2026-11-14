@@ -4044,6 +4044,7 @@ pub fn run(
         let heights = map_space.clone();
         models.set_terrain(move |x: f32, z: f32| Some(heights.ground(x, z)));
     }
+    let ui_zones = crate::music::Zones::open(&current_map.dir.join("precinct.clt")).ok();
     let destinations_path = current_map.dir.join("world_targets.txt");
     let destinations_result =
         crate::navigation::destinations_for_world(&destinations_path, &current_map.instance_ids);
@@ -4216,7 +4217,6 @@ pub fn run(
     }
     let mut world_choice = current_map.id.clone();
     let mut world_change_error = String::new();
-    let ui_zones = crate::music::Zones::open(&current_map.dir.join("precinct.clt")).ok();
     let mut last_zone: Option<usize> = None;
     let mut zone_initialized = false;
     let mut zone_check = Instant::now() - std::time::Duration::from_secs(1);
