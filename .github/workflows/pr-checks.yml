@@ -405,6 +405,11 @@ jobs:
             grep -E "(^error|: error)" /tmp/win-build.log | head -40 | while IFS= read -r line; do
               echo "::error::$line"
             done
+            # The raw step log is not always retrievable from the sandbox;
+            # the tail is what names the failure. Echo it as annotations.
+            tail -120 /tmp/win-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::win-build: $line"
+            done
           fi
           exit "$status"
       - name: Build audio corpus and scene diagnostics
