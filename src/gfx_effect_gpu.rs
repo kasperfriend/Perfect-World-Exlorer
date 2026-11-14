@@ -136,6 +136,10 @@ struct Bucket {
     buffer: wgpu::Buffer,
     /// Vertices the buffer holds; the CPU side is refilled every frame.
     capacity: usize,
+    /// Whether `binding` points at the placeholder rather than the real
+    /// texture. A bucket built while the texture was missing must rebind
+    /// once it loads — the cache key matches, so nothing else would.
+    bound_fallback: bool,
 }
 
 /// How many distinct (layer, state, texture) groups are cached before the pass
@@ -586,10 +590,10 @@ impl Draw {
                             Err(error) => self.note_failure(&key.texture, &error),
                         }
                     }
-                    // The element still draws, with a fully transparent
-                    // stand-in: the quads and their authored colour survive, only
-                    // the map is lost. Returning here instead would delete the
-                    // bucket, and a white stand-in painted it as an opaque slab.
+                    // The element still draws, with the white stand-in: the
+                    // quads and their authored colour survive (the NOTEX
+                    // vertex-colour law), only the map is lost. Returning here
+                    // instead would delete the bucket and the element with it.
                     Err(error) => self.note_failure(&key.texture, &error),
                 }
             }
@@ -598,29 +602,10 @@ impl Draw {
                 let pipeline = self.pipeline(device, key.pipeline)?;
                 self.pipelines.insert(key.pipeline, pipeline);
             }
+            let loaded = self.textures.contains_key(&key.texture);
+            let was_fallback = self.buckets.get(key).is_some_and(|b| b.bound_fallback);
             if !self.buckets.contains_key(key) {
-                let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("GFX effect texture binding"),
-                    layout: &self.binding_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.uniform.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(&entry.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::Sampler(if key.tile {
-                                &self.sampler_repeat
-                            } else {
-                                &self.sampler_clamp
-                            }),
-                        },
-                    ],
-                });
+                let binding = self.binding_for(device, entry, key.tile);
                 let capacity = vertices.len().next_power_of_two();
                 let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("GFX effect quad batch"),
@@ -635,8 +620,20 @@ impl Draw {
                         binding,
                         buffer,
                         capacity,
+                        bound_fallback: !loaded,
                     },
                 );
+            } else if loaded && was_fallback {
+                // Fail-then-succeed: the first frames bound the placeholder
+                // because the texture would not load, and now it has. The
+                // bucket survives (same key), so its binding must be rebuilt
+                // against the real view or the element draws the placeholder
+                // for the rest of the session.
+                let binding = self.binding_for(device, entry, key.tile);
+                if let Some(bucket) = self.buckets.get_mut(key) {
+                    bucket.binding = binding;
+                    bucket.bound_fallback = false;
+                }
             }
             let bucket = match self.buckets.get_mut(key) {
                 Some(bucket) => bucket,
@@ -678,6 +675,39 @@ impl Draw {
             pass.set_vertex_buffer(0, bucket.buffer.slice(..));
             pass.draw(0..*count, 0..1);
         }
+    }
+
+    /// The texture binding one bucket draws with: the uniform frame block, the
+    /// entry's texture view (the real map or the placeholder), and the
+    /// per-slot sampler (`A3DGFXRenderSlot` WRAP for a tile, CLAMP otherwise).
+    fn binding_for(
+        &self,
+        device: &wgpu::Device,
+        entry: &TextureEntry,
+        tile: bool,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("GFX effect texture binding"),
+            layout: &self.binding_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&entry.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(if tile {
+                        &self.sampler_repeat
+                    } else {
+                        &self.sampler_clamp
+                    }),
+                },
+            ],
+        })
     }
 
     fn pipeline(
@@ -1395,10 +1425,10 @@ mod tests {
             &mut read,
         )
         .unwrap();
-        // A missing texture is reported, never fatal: the group survives on the
-        // fully transparent stand-in (`self.fallback`), so the quad keeps its
-        // place in the order and only its map is lost. Deleting the bucket
-        // instead would drop the element from the frame entirely.
+        // A missing texture is reported, never fatal: the group survives on
+        // the white stand-in (`self.fallback`, the NOTEX vertex-colour law),
+        // so the quad keeps its place in the order and only its map is lost.
+        // Deleting the bucket instead would drop the element from the frame.
         assert_eq!(draw.order.len(), 1);
         assert_eq!(draw.failures(), ["missing.png: absent"]);
         assert_eq!(draw.vertex_count(), 6);
@@ -1416,6 +1446,69 @@ mod tests {
             )
             .unwrap_err();
         assert!(error.contains("non-finite"), "{error}");
+    }
+
+    /// A bucket that bound the placeholder while its texture was missing must
+    /// rebind once the texture loads. The bucket cache is keyed by the frame
+    /// group, which does not change, so without the explicit check the element
+    /// draws the placeholder for the rest of the session (fail-then-succeed).
+    #[test]
+    fn a_late_texture_replaces_the_placeholder_binding() {
+        let Some(harness) = harness() else {
+            eprintln!("effect binding test skipped: no WGPU adapter");
+            return;
+        };
+        let mut draw = Draw::new(
+            &harness.device,
+            &harness.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+        )
+        .unwrap();
+        let frame = [quad("late.png", 5, 2, 0, false, [1.; 4])];
+        let matrix = glam::Mat4::IDENTITY.to_cols_array_2d();
+        let mut absent = |_: &str| -> Result<Vec<u8>, String> { Err("absent".into()) };
+        draw.update(
+            &harness.device,
+            &harness.queue,
+            &frame,
+            matrix,
+            [0., 0., 0., 1.],
+            [0., 0., 0., 100.],
+            None,
+            &mut absent,
+        )
+        .unwrap();
+        assert!(
+            draw.buckets.values().next().unwrap().bound_fallback,
+            "the first frame must bind the placeholder"
+        );
+        // The archive answers on the next frame: a 1x1 uncompressed TGA.
+        let mut present = |_: &str| -> Result<Vec<u8>, String> {
+            let mut bytes = vec![0; 18];
+            bytes[2] = 2;
+            bytes[12..14].copy_from_slice(&1u16.to_le_bytes());
+            bytes[14..16].copy_from_slice(&1u16.to_le_bytes());
+            bytes[16] = 32;
+            bytes[17] = 8;
+            bytes.extend_from_slice(&[3, 2, 1, 4]);
+            Ok(bytes)
+        };
+        draw.update(
+            &harness.device,
+            &harness.queue,
+            &frame,
+            matrix,
+            [0., 0., 0., 1.],
+            [0., 0., 0., 100.],
+            None,
+            &mut present,
+        )
+        .unwrap();
+        assert!(
+            !draw.buckets.values().next().unwrap().bound_fallback,
+            "a texture that loads after failing must replace the placeholder binding"
+        );
     }
 
     #[test]

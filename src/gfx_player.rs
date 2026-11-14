@@ -100,7 +100,7 @@ use crate::{
     gfx_color_track::ColorTrack,
     gfx_file::{
         Child, Common, Control, ControlData, Curve, Cylinder, Element, Grid, KeyPoint, Lightning,
-        Particle, Root, Spec, Sprite, Trail, Wave,
+        NoiseKind, Particle, Root, Spec, Sprite, Trail, Wave,
     },
 };
 use glam::{Mat4, Quat, Vec3, Vec4};
@@ -2819,7 +2819,6 @@ fn apply_controls(
                 // Perlin walk itself (`APerlinNoise1D`) is still to be pinned
                 // against this fbm (D5), so the sample is normalized to
                 // [-1, 1] and scaled by the authored `Amplitude`.
-                use gfx_file::NoiseKind;
                 if matches!(kind, NoiseKind::Base) {
                     continue;
                 }
@@ -6516,7 +6515,6 @@ fn integrate(
                 // colour noise — the authored `Amplitude` is the per-channel
                 // flicker depth in bytes over the base colour, not a distance
                 // in centimetres; 112 holds the generator and does nothing.
-                use gfx_file::NoiseKind;
                 if matches!(kind, NoiseKind::Base) {
                     continue;
                 }
