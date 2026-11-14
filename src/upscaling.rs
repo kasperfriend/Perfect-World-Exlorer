@@ -194,7 +194,9 @@ pub fn probe_sdk(settings_dir: &str) -> SdkReport {
         (None, SdkSource::Unset)
     };
     let dir_is_dir = dir.as_ref().is_some_and(|dir| dir.is_dir());
-    let probe = |names: &[&str]| dir.as_ref().is_some_and(|dir| probe_any(dir, names));
+    // Borrow the path, not the Option, so `dir` can move into the report.
+    let dir_path = dir.as_deref();
+    let probe = |names: &[&str]| dir_path.map(|dir| probe_any(dir, names)).unwrap_or(false);
     SdkReport {
         dir,
         source,
