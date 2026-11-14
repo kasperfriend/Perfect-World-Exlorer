@@ -4606,6 +4606,9 @@ fn emit_model(
         if mesh.texture.is_empty() || mesh.vertices.len() < 3 {
             continue;
         }
+        let sdr_uv = crate::objects::SdrUvAnim::from_texture_path(&mesh.texture)
+            .unwrap_or(crate::objects::SdrUvAnim::IDENTITY);
+        let sdr_t = context.clock * 0.001;
         let placed: Vec<EffectVertex> = mesh
             .vertices
             .iter()
@@ -4642,7 +4645,10 @@ fn emit_model(
                     .normalize_or_zero();
                 EffectVertex {
                     position: position.to_array(),
-                    uv: vertex.uv,
+                    uv: [
+                        vertex.uv[0] * sdr_uv.tc_scale[0] + sdr_uv.tc_scroll[0] * sdr_t,
+                        vertex.uv[1] * sdr_uv.tc_scale[1] + sdr_uv.tc_scroll[1] * sdr_t,
+                    ],
                     normal: normal.to_array(),
                 }
             })
@@ -7077,12 +7083,26 @@ fn emit_fractal(
         if alpha < ALPHA_CUTOFF {
             continue;
         }
-        let corners = [
-            a - normal * width0,
-            a + normal * width0,
-            b + normal * width1,
-            b - normal * width1,
-        ];
+        let corners = match trail.map_or(0, |t| t.render_side) {
+            1 => [
+                a,
+                a + normal * (2. * width0),
+                b + normal * (2. * width1),
+                b,
+            ],
+            2 => [
+                a - normal * (2. * width0),
+                a,
+                b,
+                b - normal * (2. * width1),
+            ],
+            _ => [
+                a - normal * width0,
+                a + normal * width0,
+                b + normal * width1,
+                b - normal * width1,
+            ],
+        };
         for (slot, corner) in corners.into_iter().enumerate() {
             positions[slot] = corner.to_array();
         }
