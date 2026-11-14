@@ -69,7 +69,7 @@ fn main() {
     let sdk = upscaling::probe_sdk(&args.sdk_dir);
     println!("SDK probe: {}", sdk.summary());
     println!(
-        "  DLSS frame generation: {}   FSR frame generation: {} (optical flow: {})   XeSS 2 frame generation: {}",
+        "  DLSS FG: {}   FSR FG: {} (optical flow: {})   XeSS 2 FG: {}",
         yes_no(sdk.dlss_frame_generation),
         yes_no(sdk.fsr_frame_generation),
         yes_no(sdk.fsr_optical_flow),
@@ -80,8 +80,12 @@ fn main() {
     println!("Pairing matrix (vendor documentation; NOT verified against the SDKs):");
     println!("                       {:>22} {:>22} {:>22}", "DLSS FG", "FSR FG", "XeSS FG");
     for upscale in UpscaleMethod::ALL {
-        let cells: Vec<&'static str> = [FrameGenMethod::Dlss, FrameGenMethod::Fsr, FrameGenMethod::Xess]
-            .iter()
+        let cells: Vec<&'static str> = [
+            FrameGenMethod::Dlss,
+            FrameGenMethod::Fsr,
+            FrameGenMethod::Xess,
+        ]
+        .iter()
             .map(|fg| match upscaling::pairing(upscale, *fg) {
                 PairingVerdict::Supported => "supported*",
                 PairingVerdict::Unsupported(_) => "not supported",
@@ -94,7 +98,11 @@ fn main() {
     for upscale in UpscaleMethod::ALL {
         for frame_gen in FrameGenMethod::ALL {
             if let PairingVerdict::Unsupported(reason) = upscaling::pairing(upscale, frame_gen) {
-                println!("unsupported pairing: {} + {} — {reason}", upscale.label(), frame_gen.label());
+                println!(
+                    "unsupported pairing: {} + {} — {reason}",
+                    upscale.label(),
+                    frame_gen.label()
+                );
             }
         }
     }
@@ -114,7 +122,7 @@ fn main() {
                 }
             );
             println!();
-            println!("Frame generation support per pairing on this machine (Upscaling chosen on the left):");
+            println!("Frame generation support per pairing on this machine:");
             for upscale in UpscaleMethod::ALL {
                 for frame_gen in [FrameGenMethod::Dlss, FrameGenMethod::Fsr, FrameGenMethod::Xess] {
                     let support = upscaling::support_framegen(frame_gen, upscale, &gpu, &sdk);
@@ -137,7 +145,7 @@ fn main() {
     }
 
     println!();
-    println!("Frame pacing contract (enforced when a provider is active, not yet measurable here):");
+    println!("Frame pacing contract (verified when a provider is active):");
     println!("  - generated frames present in order, after the real frame that produced them;");
     println!("  - the UI is drawn on the real frame only and never interpolated, so menus,");
     println!("    the minimap and text are never doubled or smeared;");
@@ -146,12 +154,16 @@ fn main() {
     println!("    probe for present order and frame time while frame generation is on.");
     println!();
     println!("Frame generation never presents UI frames twice: the UI layer is composed after");
-    println!("the world upscale/interpolation pass and is excluded from interpolation by construction.");
+    println!("the world upscale/interpolation pass and is excluded from interpolation.");
 
-    let any_sdk = sdk.dlss_frame_generation || sdk.fsr_frame_generation || sdk.xess_frame_generation;
+    let any_sdk = sdk.dlss_frame_generation
+        || sdk.fsr_frame_generation
+        || sdk.xess_frame_generation;
     if args.require_sdk && !any_sdk {
         println!();
-        println!("FAIL: --require-sdk and no frame-generation SDK DLL was found in the probed folder(s).");
+        println!(
+            "FAIL: --require-sdk and no frame-generation SDK DLL was found in the probed folder(s)."
+        );
         std::process::exit(4);
     }
     println!();

@@ -63,7 +63,13 @@ pub struct GpuFacts {
 }
 
 impl GpuFacts {
-    pub fn from_parts(vendor: u32, device: u32, name: &str, backend: &str, cpu_fallback: bool) -> Self {
+    pub fn from_parts(
+        vendor: u32,
+        device: u32,
+        name: &str,
+        backend: &str,
+        cpu_fallback: bool,
+    ) -> Self {
         Self {
             vendor,
             device,
@@ -245,8 +251,9 @@ impl SdkReport {
                     found.join(", ")
                 }
             ),
-            None => "no SDK folder configured (set PW_UPSCALER_SDK_DIR, upscale_sdk_dir, or <exe>\\sdk\\)"
-                .to_string(),
+            None => {
+                "no SDK folder configured (set PW_UPSCALER_SDK_DIR or upscale_sdk_dir)".to_string()
+            }
         }
     }
 }
@@ -466,7 +473,7 @@ fn sdk_reason(sdk: &SdkReport, what: &str) -> String {
             sdk.source.label()
         ),
         (None, _) => format!(
-            "{what} not found; no SDK folder configured (set PW_UPSCALER_SDK_DIR, upscale_sdk_dir, or <exe>\\sdk\\)"
+            "{what} not found; no SDK folder configured (set PW_UPSCALER_SDK_DIR)"
         ),
     }
 }
@@ -500,7 +507,9 @@ pub fn support(method: UpscaleMethod, gpu: &GpuFacts, sdk: &SdkReport) -> Suppor
         }
         UpscaleMethod::Xess => {
             if gpu.cpu_fallback {
-                Support::Disabled("Requires an Intel Arc GPU or DP4a-capable GPU (software adapter detected)".into())
+                Support::Disabled(
+                    "Requires an Intel Arc or DP4a-capable GPU (software adapter detected)".into(),
+                )
             } else if !sdk.xess {
                 Support::Disabled(sdk_reason(sdk, "XeSS SDK (libxess.dll)"))
             } else if gpu.is_intel() {
@@ -524,9 +533,14 @@ pub fn support_framegen(
         FrameGenMethod::Off => Support::Available("always available"),
         FrameGenMethod::Dlss => {
             if gpu.cpu_fallback {
-                Support::Disabled("Requires an NVIDIA RTX 40 series GPU (software adapter detected)".into())
+                Support::Disabled(
+                    "Requires an NVIDIA RTX 40 series GPU (software adapter detected)".into(),
+                )
             } else if !gpu.is_nvidia() {
-                Support::Disabled(format!("Requires an NVIDIA RTX 40 series or later GPU (detected: {})", gpu.name))
+                Support::Disabled(format!(
+                    "Requires an NVIDIA RTX 40 series or later GPU (detected: {})",
+                    gpu.name
+                ))
             } else if !GpuFacts::supports_dlss_frame_generation(&gpu.name) {
                 Support::Disabled(format!(
                     "Requires NVIDIA RTX 40 series or later (detected: {})",
@@ -542,7 +556,10 @@ pub fn support_framegen(
             if gpu.cpu_fallback {
                 Support::Disabled("Requires a real GPU (software adapter detected)".into())
             } else if !sdk.fsr_frame_generation {
-                Support::Disabled(sdk_reason(sdk, "FSR Frame Generation SDK (ffx_framegeneration_x64.dll)"))
+                Support::Disabled(sdk_reason(
+                    sdk,
+                    "FSR Frame Generation SDK (ffx_framegeneration_x64.dll)",
+                ))
             } else if !sdk.fsr_optical_flow {
                 Support::Disabled(
                     "FSR 3 frame generation needs ffx_opticalflow_x64.dll next to the SDK DLLs"
@@ -561,8 +578,7 @@ pub fn support_framegen(
                 PairingVerdict::Unsupported(_)
             ) {
                 Support::Disabled(
-                    "XeSS Frame Generation is only exposed with XeSS upscaling or none; cross-vendor pairing is not documented"
-                        .into(),
+                    "XeSS Frame Generation is exposed with XeSS upscaling or Off only".into(),
                 )
             } else if !sdk.xess_frame_generation {
                 Support::Disabled(sdk_reason(sdk, "XeSS 2 Frame Generation SDK (libxess_fg.dll)"))
@@ -601,7 +617,7 @@ pub fn pairing(upscale: UpscaleMethod, frame_generation: FrameGenMethod) -> Pair
         FrameGenMethod::Xess => match upscale {
             UpscaleMethod::Off | UpscaleMethod::Xess => PairingVerdict::Supported,
             UpscaleMethod::Dlss | UpscaleMethod::Fsr => PairingVerdict::Unsupported(
-                "Intel documents XeSS Frame Generation for use with XeSS; combining it with DLSS or FSR upscaling is not documented and is not exposed",
+                "Intel documents XeSS Frame Generation for use with XeSS only",
             ),
         },
     }
@@ -902,14 +918,18 @@ mod tests {
         assert_eq!(UpscaleMethod::parse("bogus"), None);
         assert_eq!(FrameGenMethod::parse(""), None);
         assert_eq!(UpscaleQuality::parse("ultra_quality"), Some(UpscaleQuality::UltraQuality));
-        assert_eq!(UpscaleQuality::parse("ULTRAPERFORMANCE"), Some(UpscaleQuality::UltraPerformance));
+        assert_eq!(
+            UpscaleQuality::parse("ULTRAPERFORMANCE"),
+            Some(UpscaleQuality::UltraPerformance)
+        );
     }
 
     #[test]
     fn off_is_always_available_everywhere() {
         for gpu in [nvidia_rtx4070(), amd_rx9070(), intel_arc_a770(), software()] {
             assert!(support(UpscaleMethod::Off, &gpu, &no_sdk()).is_available());
-            assert!(support_framegen(FrameGenMethod::Off, UpscaleMethod::Off, &gpu, &no_sdk()).is_available());
+            let fg = support_framegen(FrameGenMethod::Off, UpscaleMethod::Off, &gpu, &no_sdk());
+            assert!(fg.is_available());
         }
     }
 
@@ -957,19 +977,30 @@ mod tests {
 
     #[test]
     fn dlss_frame_generation_requires_rtx_40_series() {
-        assert!(support_framegen(FrameGenMethod::Dlss, UpscaleMethod::Off, &nvidia_gtx1080(), &full_sdk())
-            .reason()
-            .unwrap()
-            .contains("40 series"));
-        assert!(support_framegen(FrameGenMethod::Dlss, UpscaleMethod::Dlss, &amd_rx9070(), &full_sdk())
-            .reason()
-            .unwrap()
-            .contains("NVIDIA"));
-        assert!(support_framegen(FrameGenMethod::Dlss, UpscaleMethod::Dlss, &nvidia_rtx4070(), &no_sdk())
-            .reason()
-            .unwrap()
-            .contains("nvngx_dlssg.dll"));
-        assert!(support_framegen(FrameGenMethod::Dlss, UpscaleMethod::Dlss, &nvidia_rtx4070(), &full_sdk()).is_available());
+        let support = support_framegen(
+            FrameGenMethod::Dlss,
+            UpscaleMethod::Off,
+            &nvidia_gtx1080(),
+            &full_sdk(),
+        );
+        assert!(support.reason().unwrap().contains("40 series"));
+        let support =
+            support_framegen(FrameGenMethod::Dlss, UpscaleMethod::Dlss, &amd_rx9070(), &full_sdk());
+        assert!(support.reason().unwrap().contains("NVIDIA"));
+        let support = support_framegen(
+            FrameGenMethod::Dlss,
+            UpscaleMethod::Dlss,
+            &nvidia_rtx4070(),
+            &no_sdk(),
+        );
+        assert!(support.reason().unwrap().contains("nvngx_dlssg.dll"));
+        assert!(support_framegen(
+            FrameGenMethod::Dlss,
+            UpscaleMethod::Dlss,
+            &nvidia_rtx4070(),
+            &full_sdk()
+        )
+        .is_available());
     }
 
     #[test]
@@ -981,16 +1012,26 @@ mod tests {
             .unwrap()
             .contains("ffx_opticalflow_x64.dll"));
         sdk.fsr_optical_flow = true;
-        assert!(support_framegen(FrameGenMethod::Fsr, UpscaleMethod::Dlss, &amd_rx9070(), &sdk).is_available());
+        assert!(support_framegen(FrameGenMethod::Fsr, UpscaleMethod::Dlss, &amd_rx9070(), &sdk)
+            .is_available());
     }
 
     #[test]
     fn xess_frame_generation_pairing_gate() {
-        assert!(support_framegen(FrameGenMethod::Xess, UpscaleMethod::Dlss, &intel_arc_a770(), &full_sdk())
-            .reason()
-            .unwrap()
-            .contains("not documented"));
-        assert!(support_framegen(FrameGenMethod::Xess, UpscaleMethod::Xess, &intel_arc_a770(), &full_sdk()).is_available());
+        let support = support_framegen(
+            FrameGenMethod::Xess,
+            UpscaleMethod::Dlss,
+            &intel_arc_a770(),
+            &full_sdk(),
+        );
+        assert!(support.reason().unwrap().contains("not documented"));
+        assert!(support_framegen(
+            FrameGenMethod::Xess,
+            UpscaleMethod::Xess,
+            &intel_arc_a770(),
+            &full_sdk()
+        )
+        .is_available());
     }
 
     #[test]
@@ -1009,14 +1050,29 @@ mod tests {
     #[test]
     fn sanitise_fixes_illegal_combinations() {
         // XeSS has no Ultra Performance mode.
-        let (_, quality, _) = sanitise(UpscaleMethod::Xess, UpscaleQuality::UltraPerformance, FrameGenMethod::Off);
+        let (_, quality, _) = sanitise(
+            UpscaleMethod::Xess,
+            UpscaleQuality::UltraPerformance,
+            FrameGenMethod::Off,
+        );
         assert_eq!(quality, UpscaleQuality::Quality);
         // Cross-vendor XeSS frame generation is not exposed.
-        let (_, _, fg) = sanitise(UpscaleMethod::Fsr, UpscaleQuality::Quality, FrameGenMethod::Xess);
+        let (_, _, fg) = sanitise(
+            UpscaleMethod::Fsr,
+            UpscaleQuality::Quality,
+            FrameGenMethod::Xess,
+        );
         assert_eq!(fg, FrameGenMethod::Off);
         // Legal combinations survive untouched.
-        let (u, q, f) = sanitise(UpscaleMethod::Dlss, UpscaleQuality::Performance, FrameGenMethod::Dlss);
-        assert_eq!((u, q, f), (UpscaleMethod::Dlss, UpscaleQuality::Performance, FrameGenMethod::Dlss));
+        let (u, q, f) = sanitise(
+            UpscaleMethod::Dlss,
+            UpscaleQuality::Performance,
+            FrameGenMethod::Dlss,
+        );
+        assert_eq!(
+            (u, q, f),
+            (UpscaleMethod::Dlss, UpscaleQuality::Performance, FrameGenMethod::Dlss)
+        );
     }
 
     #[test]
@@ -1048,7 +1104,8 @@ mod tests {
         );
         let (w, h) = provider_extent(UpscaleMethod::Xess, UpscaleQuality::Balanced, 1, 1, 8192);
         assert_eq!((w, h), (1, 1));
-        let (w, h) = provider_extent(UpscaleMethod::Fsr, UpscaleQuality::UltraPerformance, 4000, 3000, 4096);
+        let (w, h) =
+            provider_extent(UpscaleMethod::Fsr, UpscaleQuality::UltraPerformance, 4000, 3000, 4096);
         assert!(w <= 4096 && h <= 4096);
     }
 
@@ -1058,16 +1115,40 @@ mod tests {
         let sdk = no_sdk();
         // With Off (or an unavailable provider), the caller's slider extent wins.
         assert_eq!(
-            render_extent((960, 540), (1920, 1080), 8192, UpscaleMethod::Off, UpscaleQuality::Quality, &gpu, &sdk),
+            render_extent(
+                (960, 540),
+                (1920, 1080),
+                8192,
+                UpscaleMethod::Off,
+                UpscaleQuality::Quality,
+                &gpu,
+                &sdk,
+            ),
             (960, 540)
         );
         assert_eq!(
-            render_extent((960, 540), (1920, 1080), 8192, UpscaleMethod::Dlss, UpscaleQuality::Quality, &gpu, &sdk),
+            render_extent(
+                (960, 540),
+                (1920, 1080),
+                8192,
+                UpscaleMethod::Dlss,
+                UpscaleQuality::Quality,
+                &gpu,
+                &sdk,
+            ),
             (960, 540)
         );
         // An available provider overrides the slider extent.
         assert_eq!(
-            render_extent((1221, 717), (1920, 1080), 8192, UpscaleMethod::Fsr, UpscaleQuality::Performance, &amd_rx9070(), &full_sdk()),
+            render_extent(
+                (1221, 717),
+                (1920, 1080),
+                8192,
+                UpscaleMethod::Fsr,
+                UpscaleQuality::Performance,
+                &amd_rx9070(),
+                &full_sdk(),
+            ),
             (960, 540)
         );
     }
@@ -1104,7 +1185,8 @@ mod tests {
         assert!(!sdk.dlss && !sdk.fsr_upscale && !sdk.xess && !sdk.streamline);
         std::fs::remove_dir_all(&dir).ok();
         // A missing folder is reported, not fatal.
-        let missing = std::env::temp_dir().join(format!("pwe-sdk-probe-{}-missing", std::process::id()));
+        let missing =
+            std::env::temp_dir().join(format!("pwe-sdk-probe-{}-missing", std::process::id()));
         let sdk = probe_sdk(missing.to_str().unwrap());
         assert!(!sdk.dir_is_dir);
         assert!(support(UpscaleMethod::Dlss, &nvidia_rtx4070(), &sdk)

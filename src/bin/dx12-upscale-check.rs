@@ -159,7 +159,8 @@ fn main() {
                 Ok(()) => println!("passthrough provider (Upscaling = Off): OK"),
                 Err(error) => println!("passthrough provider (Upscaling = Off): {error}"),
             }
-            println!("resolution-scale path applies while Upscaling is Off; an active provider renders at its recommended internal resolution instead.");
+            println!("resolution-scale path applies while Upscaling is Off; an active");
+            println!("provider renders at its recommended internal resolution instead.");
         }
         None => {
             println!("GPU: no adapter could be created (headless or no driver).");

@@ -1077,7 +1077,10 @@ effect_shaft=up\neffect_distance=125.5\nlogging_mask=7\nlogging_dir=C:\\pwe-logs
         // `bloom_tint` is the one legacy key whose value is re-encoded in a
         // different spelling (hex input, decimal output).
         assert!(re_encoded.contains("bloom_tint=2164195583"));
-        for line in legacy.lines().filter(|line| line.contains('=') && !line.starts_with("bloom_tint=")) {
+        for line in legacy
+            .lines()
+            .filter(|line| line.contains('=') && !line.starts_with("bloom_tint="))
+        {
             assert!(
                 re_encoded.contains(line),
                 "settings re-encode lost legacy key line {line:?}"
@@ -1096,7 +1099,8 @@ effect_shaft=up\neffect_distance=125.5\nlogging_mask=7\nlogging_dir=C:\\pwe-logs
         assert_eq!(defaults.frame_generation, crate::upscaling::FrameGenMethod::Off);
         assert_eq!(defaults.upscale_sdk_dir, "");
         let s = ViewSettings::decode(
-            "upscaling=dlss\nupscale_quality=performance\nframe_generation=dlss\nupscale_sdk_dir=D:\\vendor-sdks\n",
+            "upscaling=dlss\nupscale_quality=performance\nframe_generation=dlss\n\
+             upscale_sdk_dir=D:\\vendor-sdks\n",
         );
         assert_eq!(s.upscaling, crate::upscaling::UpscaleMethod::Dlss);
         assert_eq!(s.upscale_quality, crate::upscaling::UpscaleQuality::Performance);
@@ -1104,7 +1108,9 @@ effect_shaft=up\neffect_distance=125.5\nlogging_mask=7\nlogging_dir=C:\\pwe-logs
         assert_eq!(s.upscale_sdk_dir, "D:\\vendor-sdks");
         assert_eq!(ViewSettings::decode(&s.encode()), s);
         // Unknown tokens fall back to Off/Quality.
-        let unknown = ViewSettings::decode("upscaling=vendorx\nupscale_quality=gaga\nframe_generation=vendorx\n");
+        let unknown = ViewSettings::decode(
+            "upscaling=vendorx\nupscale_quality=gaga\nframe_generation=vendorx\n",
+        );
         assert_eq!(unknown.upscaling, crate::upscaling::UpscaleMethod::Off);
         assert_eq!(unknown.upscale_quality, crate::upscaling::UpscaleQuality::Quality);
         assert_eq!(unknown.frame_generation, crate::upscaling::FrameGenMethod::Off);
