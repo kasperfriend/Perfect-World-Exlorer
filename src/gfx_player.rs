@@ -1299,16 +1299,21 @@ pub struct Player {
     root: Root,
     /// Milliseconds on the root clock, already scaled by the live play speed.
     time: f32,
-    /// The play speed a placement put on this root, replacing the file's own
-    /// `PlaySpeed`.
+    /// The play speed a placement put on this root, multiplying the file's own
+    /// `PlaySpeed` on top of it.
     ///
     /// `CECOrnamentMan::Update` calls `pGFX->SetPlaySpeed(pNode->fSpeed)` right
     /// after it sets the scale (`EC_ManOrnament.cpp:844-960`, quoted in
-    /// `Findings/World-effects-2026-11-09.md` section 51.2), so a placed root
-    /// plays at the *record's* `fSpeed` and its authored `PlaySpeed` is
-    /// discarded. Multiplying both — which the world pass used to do by scaling
-    /// the delta itself — freezes every root whose file authors `PlaySpeed: 0`
-    /// and doubles the speed of a root that authors 0.5.
+    /// `Findings/World-effects-2026-11-09.md` section 51.2) — but
+    /// `A3DGFXEx::SetPlaySpeed` only stores `m_fPlaySpeed` and
+    /// `A3DGFXEx::CalcActualSpeed` is
+    ///
+    ///     m_fActualSpeed = m_fDefPlaySpeed * m_fPlaySpeed;
+    ///
+    /// so the root runs at the *product*: the record's `fSpeed` times the
+    /// authored `PlaySpeed`. Treating the placement as a replacement froze every
+    /// root whose file authors anything but 1 (`场景/天煞光束.gfx` authors 0.4 and
+    /// must run at 0.4 with `fSpeed: 1`, 0 at `fSpeed: 0`, 0.8 at `fSpeed: 2`).
     play_speed_override: Option<f32>,
     finished: bool,
     elements: Vec<ElementRuntime>,
@@ -7711,6 +7716,27 @@ mod tests {
             "the flat colour is the brightest corner: {:?}",
             quads[0].color
         );
+    }
+
+    /// The placement's `fSpeed` multiplies the file's `PlaySpeed`
+    /// (`A3DGFXEx::CalcActualSpeed`: `m_fActualSpeed = m_fDefPlaySpeed *
+    /// m_fPlaySpeed`), so `场景/天煞光束.gfx`'s authored 0.4 runs at 0, 0.4 and
+    /// 0.8 under placements of `fSpeed` 0, 1 and 2 — the authored speed is
+    /// never discarded.
+    #[test]
+    fn play_speed_multiplies_the_authored_speed() {
+        let file = header37(1).replace("PlaySpeed: 1", "PlaySpeed: 0.4") + SPRITE;
+        let mut player = build(&file);
+        for (placement, want) in [(0., 0.), (1., 0.4), (2., 0.8)] {
+            player.set_play_speed(placement);
+            assert!(
+                (player.play_speed() - want).abs() < 1e-5,
+                "fSpeed {placement} must give {want}"
+            );
+        }
+        player.clear_play_speed();
+        assert!((player.play_speed() - 0.4).abs() < 1e-5);
+        assert!((player.authored_play_speed() - 0.4).abs() < 1e-5);
     }
 
     /// `A3DGridDecalEx::_setUVCoord` spreads **one** texture rect across the

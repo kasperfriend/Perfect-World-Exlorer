@@ -1073,8 +1073,10 @@ impl Manager {
             Ok(mut player) => {
                 // `CECOrnamentMan::Update` sets the root's scale and then its play
                 // speed from the record (`pGFX->SetPlaySpeed(pNode->fSpeed)`,
-                // `EC_ManOrnament.cpp:950-956`), so the placement's `fSpeed`
-                // replaces the file's `PlaySpeed` rather than multiplying it.
+                // `EC_ManOrnament.cpp:950-956`). `A3DGFXEx::SetPlaySpeed` only
+                // stores `m_fPlaySpeed`; `CalcActualSpeed` multiplies it with the
+                // file's `m_fDefPlaySpeed`, so the placement's `fSpeed` scales
+                // the authored `PlaySpeed` instead of replacing it.
                 player.set_play_speed(self.owners[index].request.speed);
                 for warning in player.warnings() {
                     let line = format!("{path}: {warning}");
