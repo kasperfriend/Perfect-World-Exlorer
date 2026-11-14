@@ -328,19 +328,10 @@ impl WaterBatch {
     // Conservative homogeneous clip-space rejection for the rectangular bounds.
     fn visible(&self, matrix: Mat4) -> bool {
         let [x0, x1, z0, z1] = self.bounds;
-        let corners = [
-            Vec3::new(x0, self.height, z0),
-            Vec3::new(x0, self.height, z1),
-            Vec3::new(x1, self.height, z0),
-            Vec3::new(x1, self.height, z1),
-        ]
-        .map(|p| matrix * p.extend(1.));
-        !(corners.iter().all(|p| p.x < -p.w)
-            || corners.iter().all(|p| p.x > p.w)
-            || corners.iter().all(|p| p.y < -p.w)
-            || corners.iter().all(|p| p.y > p.w)
-            || corners.iter().all(|p| p.z < 0.)
-            || corners.iter().all(|p| p.z > p.w))
+        crate::terrain_residency::in_frustum(
+            matrix,
+            [x0, self.height, z0, x1, self.height, z1],
+        )
     }
     fn distance_squared(&self, p: Vec3) -> f32 {
         let [x0, x1, z0, z1] = self.bounds;
@@ -1390,6 +1381,7 @@ struct Renderer {
     world_pages: Vec<crate::world_objects::GpuPage>,
     /// Whole-world page commands, one list per view slot (`GpuPage::world_view_slot`).
     world_draw_cmds: [Vec<crate::world_objects::DrawCmd>; crate::world_objects::WORLD_VIEWS],
+    world_sdr_draw_cmds: [Vec<crate::world_objects::DrawCmd>; crate::world_objects::WORLD_VIEWS],
     world_done: bool,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -1426,6 +1418,8 @@ struct Renderer {
     atlas: wgpu::Texture,
     vertex: wgpu::Buffer,
     index: wgpu::Buffer,
+    sdr_index: wgpu::Buffer,
+    sdr_count: u32,
     count: u32,
     depth: wgpu::Texture,
     center: (isize, isize),
@@ -1971,6 +1965,22 @@ impl Renderer {
             contents: bytemuck::cast_slice(&m.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let sdr_indices = crate::world_objects::filter_sdr_indices(
+            &m.vertices,
+            &m.indices,
+            m.terrain_end..m.water_start,
+        );
+        let sdr_count = sdr_indices.len() as u32;
+        let sdr_contents = if sdr_indices.is_empty() {
+            &[0u32][..]
+        } else {
+            &sdr_indices
+        };
+        let sdr_index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("local SDR curtain indices"),
+            contents: bytemuck::cast_slice(sdr_contents),
+            usage: wgpu::BufferUsages::INDEX,
+        });
         let count = m.indices.len() as u32;
         crate::grass_mips::upload(&queue, &atlas, &m.atlas, &m.grass_mips, ATLAS);
         let grass = crate::grass_instances::Gpu::new(
@@ -2090,6 +2100,7 @@ impl Renderer {
             local_pages,
             world_pages: Vec::new(),
             world_draw_cmds: Default::default(),
+            world_sdr_draw_cmds: Default::default(),
             world_done: false,
             layout,
             sampler,
@@ -2112,6 +2123,8 @@ impl Renderer {
             atlas,
             vertex,
             index,
+            sdr_index,
+            sdr_count,
             count,
             depth: d,
             center: m.center,
@@ -2584,6 +2597,24 @@ impl Renderer {
                 )
             })
             .collect();
+        let sdr_indices = crate::world_objects::filter_sdr_indices(
+            &m.vertices,
+            &m.indices,
+            m.terrain_end..m.water_start,
+        );
+        self.sdr_count = sdr_indices.len() as u32;
+        let sdr_contents = if sdr_indices.is_empty() {
+            &[0u32][..]
+        } else {
+            &sdr_indices
+        };
+        self.sdr_index = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("local SDR curtain indices"),
+                contents: bytemuck::cast_slice(sdr_contents),
+                usage: wgpu::BufferUsages::INDEX,
+            });
         self.vertex = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2740,31 +2771,34 @@ impl Renderer {
                 reflected,
             );
         }
-        // The `.sdr.` water/lava curtains draw in their own blended pass over
-        // the finished scene: `fs_sdr` keeps only kind 2.02/2.12 and drops
-        // every other fragment, so replaying the same ranges is free, and the
-        // `fs` entry dropped those kinds in the pass above so the sheet is
-        // never drawn twice. Order is terrain/streamed, then pages, exactly as
-        // the unblended pass above — the sheet blends over the whole world
-        // once, the client's visible result for a curtain.
-        p.set_pipeline(&self.sdr_blend_pipeline);
-        p.set_bind_group(0, bind, &[]);
-        p.set_vertex_buffer(0, self.vertex.slice(..));
-        p.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
-        p.draw_indexed(self.terrain_end..local_end, 0, 0..1);
-        if !self.world_done {
-            for page in &self.local_pages {
-                page.draw_selected(&mut p, reflected, pass_kind);
+        // The SDR pipeline only needs curtain triangles. The previous version
+        // replayed every scenery index through the vertex shader and discarded
+        // almost all of it in `fs_sdr`; compact index streams preserve original
+        // ordering while keeping ordinary scenery off this part of the pass.
+        let slot = crate::world_objects::GpuPage::world_view_slot(pass_kind);
+        let local_sdr = !self.world_done && self.local_pages.iter().any(|page| page.has_sdr());
+        let world_sdr = self.world_done && !self.world_sdr_draw_cmds[slot].is_empty();
+        if self.sdr_count != 0 || local_sdr || world_sdr {
+            p.set_pipeline(&self.sdr_blend_pipeline);
+            if self.sdr_count != 0 {
+                p.set_bind_group(0, bind, &[]);
+                p.set_vertex_buffer(0, self.vertex.slice(..));
+                p.set_index_buffer(self.sdr_index.slice(..), wgpu::IndexFormat::Uint32);
+                p.draw_indexed(0..self.sdr_count, 0, 0..1);
             }
-        }
-        if self.world_done {
-            let slot = crate::world_objects::GpuPage::world_view_slot(pass_kind);
-            crate::world_objects::GpuPage::draw_world(
-                &self.world_pages,
-                &self.world_draw_cmds[slot],
-                &mut p,
-                reflected,
-            );
+            if !self.world_done {
+                for page in &self.local_pages {
+                    page.draw_selected_sdr(&mut p, reflected, pass_kind);
+                }
+            }
+            if self.world_done {
+                crate::world_objects::GpuPage::draw_world_sdr(
+                    &self.world_pages,
+                    &self.world_sdr_draw_cmds[slot],
+                    &mut p,
+                    reflected,
+                );
+            }
         }
     }
     fn draw_models(
@@ -4558,7 +4592,7 @@ pub fn run(
                     if want_world != world_enabled {
                         world_enabled=want_world;
                         if let Some(c)=world_cancel.take(){c.store(true,std::sync::atomic::Ordering::Relaxed);}
-                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_cmds=Default::default();renderer.world_done=false;
+                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_cmds=Default::default();renderer.world_sdr_draw_cmds=Default::default();renderer.world_done=false;
                         if world_enabled {
                             let (tx,rx)=std::sync::mpsc::sync_channel(1);let cancel=Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let c=cancel.clone();let root=whole_element.clone();let ornaments=whole_ornaments.clone();
@@ -4573,7 +4607,7 @@ pub fn run(
                             renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_cmds=crate::world_objects::GpuPage::world_commands(&renderer.world_pages);renderer.world_done=true;world_status=world_loading_summary(processed,skipped,&stats);eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_cmds=crate::world_objects::GpuPage::world_commands(&renderer.world_pages);renderer.world_sdr_draw_cmds=crate::world_objects::GpuPage::world_sdr_commands(&renderer.world_pages);renderer.world_done=true;world_status=world_loading_summary(processed,skipped,&stats);eprintln!("{world_status}");},
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}
@@ -5229,6 +5263,8 @@ pub fn preview(
                     );
                     renderer.world_draw_cmds =
                         crate::world_objects::GpuPage::world_commands(&renderer.world_pages);
+                    renderer.world_sdr_draw_cmds =
+                        crate::world_objects::GpuPage::world_sdr_commands(&renderer.world_pages);
                     renderer.world_done = true;
                     break;
                 }
@@ -5643,6 +5679,8 @@ mod frame_snapshot_tests {
         let src = source();
         assert!(src.contains("entry_point: \"fs_sdr\""));
         assert!(src.contains("p.set_pipeline(&self.sdr_blend_pipeline);"));
+        assert!(src.contains("filter_sdr_indices"));
+        assert!(src.contains("draw_world_sdr"));
     }
 }
 
