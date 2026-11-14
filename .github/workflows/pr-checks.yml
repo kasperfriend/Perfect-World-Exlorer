@@ -415,12 +415,14 @@ jobs:
             # The raw log is unreachable from the dev sandbox; post the error
             # excerpt as a PR comment instead so the failure is actionable.
             first_err=$(grep -n -E "error" /tmp/win-build.log | head -1 | cut -d: -f1)
-            if [ -n "$first_err" ]; then
-              start=$(( first_err > 15 ? first_err - 15 : 1 ))
-              sed -n "${start},$(( start + 80 ))p" /tmp/win-build.log > /tmp/win-err.txt
-            else
-              tail -80 /tmp/win-build.log > /tmp/win-err.txt
-            fi
+            {
+              if [ -n "$first_err" ]; then
+                start=$(( first_err > 10 ? first_err - 10 : 1 ))
+                sed -n "${start},\$p" /tmp/win-build.log
+              else
+                tail -120 /tmp/win-build.log
+              fi
+            } | head -220 > /tmp/win-err.txt
             { echo 'Windows build failed (cargo exit '"$status"'). Log excerpt:'; echo '```'; cat /tmp/win-err.txt; echo '```'; } > /tmp/win-err.md
             gh pr comment "$PR" --body-file /tmp/win-err.md || true
             exit "$status"

@@ -301,7 +301,7 @@ impl FfxLoader {
                     Ok(proc as *const c_void)
                 }
             };
-            let loaded = (|| {
+            let loaded: Result<FfxLoader, String> = (|| {
                 Ok(FfxLoader {
                     handle,
                     create_context: unsafe { std::mem::transmute(get(b"ffxCreateContext\0")?) },
@@ -985,7 +985,7 @@ impl FsrUpscaler {
         if rc != FFX_API_RETURN_OK || context.is_null() {
             return Err(format!("ffxCreateContext failed (0x{rc:x}); is amd_fidelityfx_upscaler_dx12.dll next to the loader?"));
         }
-        eprintln!("[FSR] upscaler context 0x{context:x} created ({provider_note})");
+        eprintln!("[FSR] upscaler context 0x{:x} created ({provider_note})", context as usize);
 
         let mut phase_count: i32 = 0;
         let mut phase_query = FfxQueryDescUpscaleGetJitterPhaseCount {
@@ -1135,7 +1135,7 @@ impl FsrUpscaler {
         };
         queue.write_buffer(&self.mv_pass.params, 0, bytemuck::bytes_of(&params));
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor {
-            aspect: wgpu::TextureAspect::Depth,
+            aspect: wgpu::TextureAspect::All,
             ..Default::default()
         });
         let mv_view = self
@@ -1158,9 +1158,7 @@ impl FsrUpscaler {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        self.mv_pass.params.as_entire_binding(),
-                    ),
+                    resource: self.mv_pass.params.as_entire_binding(),
                 },
             ],
         });
