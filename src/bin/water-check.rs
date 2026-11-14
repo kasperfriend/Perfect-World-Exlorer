@@ -6,6 +6,9 @@ mod pck;
 #[path = "../scene.rs"]
 mod scene;
 #[allow(dead_code)]
+#[path = "../loading_workers.rs"]
+mod loading_workers;
+#[allow(dead_code)]
 #[path = "../water.rs"]
 mod water;
 use std::{env, path::Path};

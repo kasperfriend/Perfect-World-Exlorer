@@ -6,6 +6,8 @@ mod pck;
 mod random;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../loading_workers.rs"]
+mod loading_workers;
 #[path = "../water.rs"]
 mod water;
 use std::{

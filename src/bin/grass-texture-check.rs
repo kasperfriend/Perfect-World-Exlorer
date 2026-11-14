@@ -11,6 +11,8 @@ mod pck;
 mod scene;
 #[path = "../vegetation_textures.rs"]
 mod vegetation_textures;
+#[path = "../loading_workers.rs"]
+mod loading_workers;
 #[path = "../water.rs"]
 mod water;
 fn main() {

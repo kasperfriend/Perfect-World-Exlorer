@@ -701,7 +701,8 @@ pub fn load_sequences(
     let archive = element.join("textures.pck");
     let mut index_file = File::open(&archive).map_err(|e| e.to_string())?;
     let entries = crate::pck::directory(&mut index_file)?;
-    let mut by_name = std::collections::HashMap::<String, crate::pck::Entry>::with_capacity(entries.len());
+    let mut by_name =
+        std::collections::HashMap::<String, crate::pck::Entry>::with_capacity(entries.len());
     for entry in entries {
         // Keep the same first-match behavior as the old case-insensitive scan
         // if a malformed archive repeats a normalized member name.
@@ -727,12 +728,7 @@ pub fn load_sequences(
         jobs.push((name, entry, false));
     }
 
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .min(4)
-        .min(jobs.len())
-        .max(1);
+    let workers = crate::loading_workers::worker_limit().min(jobs.len()).max(1);
     let next = AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::sync_channel(workers * 2);
     let decoded = std::thread::scope(|scope| -> Result<Vec<Result<Vec<image::RgbaImage>, String>>, String> {
@@ -748,36 +744,41 @@ pub fn load_sequences(
                     let Some((name, entry, normal)) = jobs.get(index) else {
                         break;
                     };
-                    let result = match &mut file {
-                        Ok(file) => crate::pck::read_entry(file, entry)
-                            .map_err(|e| format!("{name}: {e}"))
-                            .and_then(|raw| {
-                                if *normal {
-                                    match decode_water_dds_mips(&raw) {
-                                        Ok(levels) => Ok(levels),
-                                        Err(err) => {
-                                            // Retail tolerates a broken authored lower normal mip:
-                                            // retry the same base image with only that flag cleared.
-                                            let mut base = raw;
-                                            if base.len() >= 12 {
-                                                let flags = u32::from_le_bytes(
-                                                    base[8..12].try_into().unwrap(),
-                                                ) & !0x20000;
-                                                base[8..12].copy_from_slice(&flags.to_le_bytes());
+                    let result = {
+                        let _permit = crate::loading_workers::acquire();
+                        match &mut file {
+                            Ok(file) => crate::pck::read_entry(file, entry)
+                                .map_err(|e| format!("{name}: {e}"))
+                                .and_then(|raw| {
+                                    if *normal {
+                                        match decode_water_dds_mips(&raw) {
+                                            Ok(levels) => Ok(levels),
+                                            Err(err) => {
+                                                // Retail tolerates a broken authored lower normal mip:
+                                                // retry the same base image with only that flag cleared.
+                                                let mut base = raw;
+                                                if base.len() >= 12 {
+                                                    let flags = u32::from_le_bytes(
+                                                        base[8..12].try_into().unwrap(),
+                                                    ) & !0x20000;
+                                                    base[8..12]
+                                                        .copy_from_slice(&flags.to_le_bytes());
+                                                }
+                                                decode_water_dds_mips(&base)
+                                                    .map_err(|e| format!("{name}: {e}; {err}"))
+                                                    .map(|levels| {
+                                                        eprintln!("{name}: {err}; using base level");
+                                                        levels
+                                                    })
                                             }
-                                            decode_water_dds_mips(&base)
-                                                .map_err(|e| format!("{name}: {e}; {err}"))
-                                                .map(|levels| {
-                                                    eprintln!("{name}: {err}; using base level");
-                                                    levels
-                                                })
                                         }
+                                    } else {
+                                        decode_texture_mips(&raw)
+                                            .map_err(|e| format!("{name}: {e}"))
                                     }
-                                } else {
-                                    decode_texture_mips(&raw).map_err(|e| format!("{name}: {e}"))
-                                }
-                            }),
-                        Err(error) => Err(format!("{}: {error}", archive.display())),
+                                }),
+                            Err(error) => Err(format!("{}: {error}", archive.display())),
+                        }
                     };
                     if tx.send((index, result)).is_err() {
                         break;

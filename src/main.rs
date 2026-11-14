@@ -130,6 +130,7 @@ mod indirect_args;
 #[cfg(windows)]
 mod launcher_ui;
 mod light_consumers;
+mod loading_workers;
 mod material;
 mod model_asset;
 mod model_attachment;
@@ -501,11 +502,14 @@ where
                     if bi >= tile.blocks {
                         break;
                     }
-                    let decoded = decode_block_owned(tile, &mut scratch, bi).and_then(
-                        |(heights, normals)| {
-                            prepare_terrain_block(heights, normals, tile.grid, paged)
-                        },
-                    );
+                    let decoded = {
+                        let _permit = crate::loading_workers::acquire();
+                        decode_block_owned(tile, &mut scratch, bi).and_then(
+                            |(heights, normals)| {
+                                prepare_terrain_block(heights, normals, tile.grid, paged)
+                            },
+                        )
+                    };
                     let failed = decoded.is_err();
                     if tx.send((bi, decoded)).is_err() || failed {
                         break;

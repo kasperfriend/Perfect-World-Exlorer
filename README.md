@@ -148,13 +148,20 @@ CPU terrain-data budget, not a whole-program or GPU-memory limit.
 - `PW_CACHE_DIR` changes the cache root (the `terrain-v1` namespace is appended).
   Choose a writable local disk with free space. No client files are modified.
 - `PW_TERRAIN_RAM_MIB=1` minimizes the terrain hot set; larger values up to 256
-  trade RAM for fewer page reads. Default: 2. More disk reads are an intentional
-  RAM/latency tradeoff; slow disks can cause streaming stalls.
+  trade RAM for fewer page reads. Default: 32 MiB. Larger hot sets can reduce
+  repeated disk reads while flying, at the cost of RAM.
+- `PW_TERRAIN_THREADS` sets terrain block workers (1..64); by default the viewer
+  detects available parallelism. `PW_LOAD_WORKERS` sets the shared startup worker
+  budget (1..128). Its default is hardware-derived and gates terrain compression,
+  world-model loading, and water texture decode together to avoid competing pools
+  each claiming every core. Raising it can help machines with spare CPU or fast
+  storage; reduce it if memory pressure or system responsiveness becomes an issue.
 - Cache objects are content-addressed and verified; changed client data cannot
-  reuse stale terrain. Incomplete builds are not published. It is safe to delete
-  this derived cache **with the viewer closed**; the next load rebuilds it.
-  Do not distribute cached client data. Source validation and cache construction
-  still run at startup; this is not a promise of faster warm loading.
+  reuse stale terrain. Warm starts skip terrain block decode/recompression and
+  verify pages on demand; source identity is still checked against the client.
+  Incomplete builds are not published. It is safe to delete this derived cache
+  **with the viewer closed**; the next load rebuilds it. Do not distribute cached
+  client data.
 - Decoded static-scenery texture caching now defaults to **32 MiB**, down from
   256. `PW_TEX_BUDGET_MIB` remains available. Textures needed by the active
   batch are pinned and may exceed that budget; no textures are omitted or

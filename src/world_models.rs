@@ -103,11 +103,7 @@ impl Assets {
             .collect();
         let entry_index = Arc::new(entries);
         let next = AtomicUsize::new(0);
-        let worker_count = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
-            .min(4)
-            .min(paths.len());
+        let worker_count = crate::loading_workers::worker_limit().min(paths.len());
         let (send, receive) = std::sync::mpsc::sync_channel(worker_count * 2);
         let loaded = std::thread::scope(|scope| -> Result<Vec<_>, String> {
             for _ in 0..worker_count {
@@ -125,19 +121,22 @@ impl Assets {
                         let Some(path) = paths.get(index) else {
                             break;
                         };
-                        let asset = if let Some(error) = &open_error {
-                            Err(format!("models.pck: {error}"))
-                        } else {
-                            ModelAsset::load_cached(
-                                path,
-                                |dependency| {
-                                    let entry = entries.get(dependency).ok_or_else(|| {
-                                        format!("missing models.pck entry: {dependency}")
-                                    })?;
-                                    crate::pck::read_entry(file.as_mut().unwrap(), entry)
-                                },
-                                &mut tracks,
-                            )
+                        let asset = {
+                            let _permit = crate::loading_workers::acquire();
+                            if let Some(error) = &open_error {
+                                Err(format!("models.pck: {error}"))
+                            } else {
+                                ModelAsset::load_cached(
+                                    path,
+                                    |dependency| {
+                                        let entry = entries.get(dependency).ok_or_else(|| {
+                                            format!("missing models.pck entry: {dependency}")
+                                        })?;
+                                        crate::pck::read_entry(file.as_mut().unwrap(), entry)
+                                    },
+                                    &mut tracks,
+                                )
+                            }
                         };
                         if send.send((index, asset)).is_err() {
                             break;
