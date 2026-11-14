@@ -8341,7 +8341,11 @@ mod tests {
         for quad in one_long.quads() {
             assert_eq!(quad.color, expected);
         }
-        let matching = many_short.quads().iter().filter(|q| q.color == expected).count();
+        let matching = many_short
+            .quads()
+            .iter()
+            .filter(|q| q.color == expected)
+            .count();
         assert!(
             matching >= 2,
             "the same-age particles must flicker identically whatever the frame schedule was"
