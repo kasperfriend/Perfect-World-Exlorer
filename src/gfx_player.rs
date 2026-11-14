@@ -660,6 +660,9 @@ struct ParticleState {
     speed: f32,
     /// node+0x6c
     scale: f32,
+    /// `PROC_DATA::m_fScaleNoise` for the per-particle affector pass: written
+    /// by controller 109, added to the output scale at the read.
+    scale_noise: f32,
     /// Sub-integer carry of the colour controller, one per channel
     /// (ctrl+0x24..0x30).
     color_remainder: [f32; 4],
@@ -846,7 +849,10 @@ enum Runtime {
 #[derive(Clone, Debug)]
 struct CtrlState {
     offset: Vec3,
-    velocity: Vec3,
+    /// The client's `PROC_DATA::m_vAxisOff`: every `A3DGFXCtrlMove` step adds
+    /// to it along with the position, and the centripetal (104) and rot-axis
+    /// (102) controllers take `m_vPos + m_vAxisOff` as their centre.
+    axis_off: Vec3,
     rotation: f32,
     /// The accumulated `CtrlType: 102`/`103` spin, as a quaternion about the
     /// axis the record authors. The client left-multiplies it onto the keypoint
@@ -854,14 +860,15 @@ struct CtrlState {
     /// so it is a rotation in the owner's frame, not about the element's own Z.
     orbit: Quat,
     scale_extra: f32,
+    /// `PROC_DATA::m_fScaleNoise`, written by controller 109 and added to the
+    /// output scale on the keypoint read (`m_fScale += m_fScaleNoise`).
+    scale_noise: f32,
     color_offset: [i32; 4],
     /// Sub-integer carry of controller 105, one per channel (ctrl+0x24..0x30).
     color_remainder: [f32; 4],
-    noise: Vec3,
     scale_override: Option<f32>,
     color_override: Option<u32>,
     path_override: Option<Vec3>,
-    path_time: f32,
     ramp: Option<ColorTrack>,
     scale_ramp: Option<(f32, Vec<(f32, f32)>)>,
     path_points: Option<Vec<Vec3>>,
@@ -936,17 +943,16 @@ impl CtrlState {
     fn new() -> Self {
         Self {
             offset: Vec3::ZERO,
-            velocity: Vec3::ZERO,
+            axis_off: Vec3::ZERO,
             rotation: 0.,
             orbit: Quat::IDENTITY,
             scale_extra: 0.,
+            scale_noise: 0.,
             color_offset: [0; 4],
             color_remainder: [0.; 4],
-            noise: Vec3::ZERO,
             scale_override: None,
             color_override: None,
             path_override: None,
-            path_time: 0.,
             ramp: None,
             scale_ramp: None,
             path_points: None,
@@ -2314,12 +2320,9 @@ fn advance_element(
     let scale = runtime
         .state
         .scale_override
-        .unwrap_or(sampled.scale + runtime.state.scale_extra);
+        .unwrap_or(sampled.scale + runtime.state.scale_extra + runtime.state.scale_noise);
     let color = runtime.state.color_override.unwrap_or(sampled.color);
-    let offset = runtime
-        .state
-        .path_override
-        .unwrap_or(runtime.state.offset + runtime.state.noise);
+    let offset = runtime.state.path_override.unwrap_or(runtime.state.offset);
     // The interpolated keypoint orientation, not the raw one: a root that
     // authors two keypoints with different `Direction` quaternions turns
     // smoothly between them, and a 102/103 axis spin turns on top of that.
@@ -2545,6 +2548,21 @@ fn element_phase(element: &Element, local: f32, cycle: f32) -> (f32, bool) {
 /// The active keypoint, its index and the interpolated values for this frame.
 fn sample_keypoints(element: &Element, phase: f32) -> Option<(usize, &KeyPoint, Sampled)> {
     let mut clock = 0f32;
+    // `A3DGFXKeyPointSet::Resume` seeds `m_ProcData.m_KPProcess` from
+    // keypoint 0's KPOrg, and `TickAnimation` never copies a step keypoint's
+    // KPOrg on top: only `Interpolate` writes KPOrg-derived values, and only
+    // while the active keypoint's mode interpolates. So a step keypoint's own
+    // values are simply not applied — the carried state stands (B1), and
+    // `Interpolate` reads the segment's own endpoints regardless.
+    let first = element.keypoints.first()?;
+    let mut carried = Sampled {
+        position: first.position,
+        color: first.color,
+        scale: first.scale,
+        direction: first.direction,
+        rad_2d: first.rad_2d,
+        offset: 0.,
+    };
     for (index, key) in element.keypoints.iter().enumerate() {
         let span = if key.time_span < 0. {
             f32::INFINITY
@@ -2554,14 +2572,9 @@ fn sample_keypoints(element: &Element, phase: f32) -> Option<(usize, &KeyPoint, 
         if span.is_infinite() || phase < clock + span {
             let offset = (phase - clock).max(0.);
             let sampled = if key.interpolate_mode == 0 || span.is_infinite() {
-                Sampled {
-                    position: key.position,
-                    color: key.color,
-                    scale: key.scale,
-                    direction: key.direction,
-                    rad_2d: key.rad_2d,
-                    offset,
-                }
+                // Step keypoint (or the held last one): the previous state,
+                // untouched. The controllers still run on top of it.
+                Sampled { offset, ..carried }
             } else {
                 let blend = (offset / span).clamp(0., 1.);
                 match element.keypoints.get(index + 1) {
@@ -2569,35 +2582,55 @@ fn sample_keypoints(element: &Element, phase: f32) -> Option<(usize, &KeyPoint, 
                         position: key.position.lerp(next.position, blend),
                         color: blend_color(key.color, next.color, blend),
                         scale: key.scale + (next.scale - key.scale) * blend,
-                        direction: key.direction.slerp(next.direction, blend),
+                        // `Interpolate` slerps the direction only under
+                        // `enumInterpAll`; `enumInterpNoDir` keeps the
+                        // previous direction (A6).
+                        direction: if key.interpolate_mode == 1 {
+                            key.direction.slerp(next.direction, blend)
+                        } else {
+                            carried.direction
+                        },
                         rad_2d: key.rad_2d + (next.rad_2d - key.rad_2d) * blend,
                         offset,
                     },
-                    None => Sampled {
-                        position: key.position,
-                        color: key.color,
-                        scale: key.scale,
-                        direction: key.direction,
-                        rad_2d: key.rad_2d,
-                        offset,
-                    },
+                    None => Sampled { offset, ..carried },
                 }
             };
             return Some((index, key, sampled));
         }
         clock += span;
+        // Advance the carried state across the finished segment exactly the
+        // way the client does: interpolation ends at the next KPOrg (all
+        // channels but the direction under mode 2), a step changes nothing.
+        if key.interpolate_mode != 0 {
+            if let Some(next) = element.keypoints.get(index + 1) {
+                carried = Sampled {
+                    position: next.position,
+                    color: next.color,
+                    scale: next.scale,
+                    direction: if key.interpolate_mode == 1 {
+                        next.direction
+                    } else {
+                        carried.direction
+                    },
+                    rad_2d: next.rad_2d,
+                    offset: 0.,
+                };
+            }
+        }
     }
     None
 }
 
-/// Channel-wise blend of two packed colours, rounded to the nearest byte the
-/// way the client's ramp table rounds.
+/// Channel-wise blend of two packed colours, truncated toward zero the way
+/// `Interpolate`/`Interp_Color` do it: `(int)(from * (1 - portion) + to * portion)`
+/// per channel (`A3DGFXKeyPoint.h`, `A3DGFXKeyPoint.cpp`).
 fn blend_color(from: u32, to: u32, blend: f32) -> u32 {
     let mut packed = 0u32;
     for shift in [0u32, 8, 16, 24] {
         let a = ((from >> shift) & 0xff) as f32;
         let b = ((to >> shift) & 0xff) as f32;
-        let value = (a + (b - a) * blend).round().clamp(0., 255.) as u32;
+        let value = (a + (b - a) * blend).trunc().clamp(0., 255.) as u32;
         packed |= value << shift;
     }
     packed
@@ -2669,14 +2702,19 @@ fn apply_controls(
         if control.end >= 0. && age_ms > control.end {
             continue;
         }
-        // The controllers integrate against their own clock, which starts at
-        // their StartTime: `0x6eaf60` reads temp+0x34, the node age.
-        let local = (age_ms - control.start) / 1000.;
+        // The controllers integrate over the keypoint's own clock, not over
+        // their own: `CalcDist(m_fVelOrg, m_fAcc, ProcData.m_fTimeSpan,
+        // fTimeSpan)` runs over `[m_fTimeSpan, m_fTimeSpan + dt]` and
+        // `m_fTimeSpan` is the elapsed time in the keypoint. StartTime and
+        // EndTime are only the `Tick` gate. So the clock is `age` for every
+        // controller and the ramp tables — the old `age - control.start`
+        // shifted the whole motion of any controller authored late.
+        let local = age;
         match &control.data {
             ControlData::Motion { dir, vel, acc } => {
                 let dspl = displacement(*vel, *acc, local, dt);
                 state.offset += *dir * dspl;
-                state.velocity += *dir * dspl;
+                state.axis_off += *dir * dspl;
             }
             ControlData::Speed { vel, acc } => {
                 state.rotation += displacement(*vel, *acc, local, dt);
@@ -2696,25 +2734,53 @@ fn apply_controls(
                 let rotation = Quat::from_axis_angle(axis, dspl);
                 // `A3DGFXCtrlRotAxis::Process` does both halves: it spins the
                 // keypoint direction about the authored axis, and it orbits the
-                // keypoint position around that axis through `m_vPos`.
+                // keypoint position around that axis through
+                // `m_vPos + m_vAxisOff` — the absolute position, not the
+                // displacement (`a3d_RotatePosAroundLine(m_KPProcess.m_vPos, ...)`).
                 state.orbit = rotation * state.orbit;
-                state.offset = rotation * (state.offset - *pos) + *pos;
+                let centre = *pos + state.axis_off;
+                let current = sampled.position + state.offset;
+                state.offset = rotation * (current - centre) + centre - sampled.position;
+            }
+            ControlData::Revol {
+                pos,
+                axis,
+                vel,
+                acc,
+            } => {
+                // `A3DGFXCtrlRevol::Process` moves only the position: the
+                // revolution orbits the position about `m_vPos + m_vAxisOff`
+                // but leaves the keypoint direction alone (only 102 spins it).
+                let dspl = displacement(*vel, *acc, local, dt);
+                let axis = if axis.length_squared() > 1e-12 {
+                    axis.normalize()
+                } else {
+                    Vec3::Y
+                };
+                let rotation = Quat::from_axis_angle(axis, dspl);
+                let centre = *pos + state.axis_off;
+                let current = sampled.position + state.offset;
+                state.offset = rotation * (current - centre) + centre - sampled.position;
             }
             ControlData::Attract { pos, vel, acc } => {
-                if *vel == -1. {
-                    continue;
-                }
+                // `A3DGFXCtrlCentriMove::Process` steps the position toward
+                // the centre `m_vPos + m_vAxisOff` by the integrated distance
+                // and clamps at the centre on overshoot; a negative step walks
+                // away from it. The `vel == -1` / `dspl == -1` sentinels were
+                // disassembly artefacts and are gone.
                 let dspl = displacement(*vel, *acc, local, dt);
-                let target = *pos + state.velocity;
-                if dspl == -1. {
-                    // The client's snap sentinel at 0x6ebd0a.
-                    state.offset = target;
-                    continue;
-                }
-                let delta = state.offset - target;
+                let target = *pos + state.axis_off;
+                let current = sampled.position + state.offset;
+                let delta = target - current;
                 let length = delta.length();
                 if length > 1e-6 {
-                    state.offset += delta / length * dspl;
+                    if dspl >= length {
+                        state.offset = target - sampled.position;
+                    } else {
+                        state.offset += delta / length * dspl;
+                    }
+                } else if dspl < 0. {
+                    state.offset += Vec3::Y * dspl;
                 }
             }
             ControlData::ColorDelta { delta } => {
@@ -2734,44 +2800,79 @@ fn apply_controls(
                 state.scale_extra = total - sampled.scale;
             }
             ControlData::Fractal {
+                kind,
                 amplitude,
                 wave_length,
                 persistence,
                 octaves,
                 buffer_length,
-                ..
+                base_color,
             } => {
-                // The noise controllers displace the element by an fBm sample
-                // of its own clock. The client's table generator was not
-                // located; the parameters are the authored ones.
+                // The three noise controllers share one generator payload but
+                // act on different slots (`A3DGFXKeyPoint.h` id map):
+                // `A3DGFXCtrlScaleNoise` (109) writes `PROC_DATA::m_fScaleNoise`,
+                // which the keypoint read adds to the output scale; the noise
+                // is not a position jitter at all. `A3DGFXCtrlNoiseBase` (112)
+                // holds the shared generator and does nothing in `Process`.
+                // `A3DGFXCtrlColorNoise` (107) writes a colour whose RGB come
+                // from `BaseColor` with the alpha driven by the noise. The
+                // Perlin walk itself (`APerlinNoise1D`) is still to be pinned
+                // against this fbm (D5), so the sample is normalized to
+                // [-1, 1] and scaled by the authored `Amplitude`.
+                use gfx_file::NoiseKind;
+                if matches!(kind, NoiseKind::Base) {
+                    continue;
+                }
                 let sample = fbm(
                     rng.next_u32(),
-                    age,
+                    // The noise walk runs on the keypoint clock in
+                    // milliseconds, the same `m_fTimeSpan * 1000` table index
+                    // `A3DGFXCtrlClTrans` uses; the authored `WaveLen: 100` on
+                    // corpus controllers is a 100 ms wavelength.
+                    age * 1000.,
                     *wave_length,
                     *persistence,
                     (*octaves).max(1) as usize,
                     *buffer_length,
                 );
-                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
-                state.noise = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
+                let signed = sample.clamp(-1., 1.);
+                match kind {
+                    NoiseKind::Scale => {
+                        state.scale_noise = *amplitude * signed;
+                    }
+                    NoiseKind::Color => {
+                        // `BaseColor: -1` (all bits set) means "no base
+                        // authored", so the flicker is over the keypoint
+                        // colour. The depth is the authored `Amplitude` in
+                        // channel bytes; the client's exact scaling is in the
+                        // unread `Process` body (best-approach call).
+                        let base = match base_color {
+                            Some(0xff_ff_ff_ff) | None => sampled.color,
+                            Some(color) => *color,
+                        };
+                        let mut packed = 0u32;
+                        for shift in [0u32, 8, 16, 24] {
+                            let channel = (((base >> shift) & 0xff) as f32 + *amplitude * signed)
+                                .clamp(0., 255.) as u32;
+                            packed |= channel << shift;
+                        }
+                        state.color_override = Some(packed);
+                    }
+                    NoiseKind::Base => unreachable!("handled above"),
+                }
             }
             ControlData::ColorRamp { .. } => {
-                // Open question, recorded in `Findings/`: `ColorTrack::sample`
-                // gates on its own `start`/`end` and then walks its tables from
-                // zero, so shifting the argument moves the gate too — while
-                // `gfx_light` samples the same track type with unshifted
-                // keypoint seconds, and controllers 100/101 were read as gating
-                // on `age < StartTime` while integrating absolute `age`.
-                // Settling it needs the controller-108 update routine; nothing
-                // is changed here on a guess.
+                // `A3DGFXCtrlClTrans::Process` walks its table from
+                // `ProcData.m_fTimeSpan * 1000` — the keypoint clock, with no
+                // StartTime subtraction (the Tick gate already decided that
+                // this controller is inside its window).
                 if let Some(track) = &state.ramp {
-                    state.color_override = track.sample(age - control.start / 1000.);
+                    state.color_override = track.sample(age);
                 }
             }
             ControlData::ScaleRamp { .. } => {
                 if let Some((first, stops)) = &state.scale_ramp {
-                    state.scale_override =
-                        Some(sample_ramp(*first, stops, age - control.start / 1000.));
+                    state.scale_override = Some(sample_ramp(*first, stops, age));
                 }
             }
             ControlData::Path { .. } => {
@@ -2781,12 +2882,19 @@ fn apply_controls(
                 if points.len() < 2 {
                     continue;
                 }
-                state.path_time += dt;
-                let total = path_length(points);
-                if total <= 0. {
-                    continue;
-                }
-                let (position, tangent) = sample_path(points, state.path_time % total);
+                // `A3DGFXCtrlCurveMove::Process` drives `fRatio =
+                // time_in_keypoint / keypoint_span` into `GetInterpPoint`:
+                // the path takes exactly the keypoint's span no matter how
+                // long it is, the ratio clamps at 1 (the last point is held,
+                // no wrap), and `GenPath` builds cubic Bezier segments whose
+                // end tangents are `(P[i+1] - P[i-1]) / 6`.
+                let span = if key.time_span > 0. {
+                    key.time_span
+                } else {
+                    1.
+                };
+                let ratio = (age / span).clamp(0., 1.);
+                let (position, tangent) = sample_curve_ratio(points, ratio);
                 state.path_override = Some(position);
                 if state.path_direction {
                     state.rotation = tangent.angle_between(Vec3::X);
@@ -2857,6 +2965,48 @@ fn sample_path(points: &[Vec3], distance: f32) -> (Vec3, Vec3) {
         .filter(|delta| delta.length_squared() > 1e-9)
         .map_or(Vec3::X, |delta| delta.normalize());
     (last, direction)
+}
+
+/// `A3DGFXCtrlCurveMove`'s path sampler: `fRatio = time_in_keypoint /
+/// keypoint_span` into the client's `GenPath`/`GetInterpPoint` curve, which
+/// builds one cubic Bezier per authored segment with end tangents
+/// `(P[i+1] - P[i-1]) / 6` (Catmull-Rom tangents rescaled into Bezier handles;
+/// the end points duplicate their neighbour, so the boundary tangent is
+/// `(P[1] - P[0]) / 6`). The ratio clamps at 1 — the last point is held, the
+/// path does not wrap.
+fn sample_curve_ratio(points: &[Vec3], ratio: f32) -> (Vec3, Vec3) {
+    if points.len() == 1 {
+        return (points[0], Vec3::X);
+    }
+    let max = (points.len() - 1) as f32;
+    let scaled = ratio.clamp(0., 1.) * max;
+    let segment = (scaled.floor() as usize).min(points.len() - 2);
+    let t = (scaled - segment as f32).clamp(0., 1.);
+    let p0 = points[segment];
+    let p1 = points[segment + 1];
+    let prev = if segment == 0 {
+        p0
+    } else {
+        points[segment - 1]
+    };
+    let next = if segment + 2 < points.len() {
+        points[segment + 2]
+    } else {
+        p1
+    };
+    let m0 = (p1 - prev) / 6.;
+    let m1 = (next - p0) / 6.;
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let position = (2. * t3 - 3. * t2 + 1.) * p0
+        + (t3 - 2. * t2 + t) * m0
+        + (-2. * t3 + 3. * t2) * p1
+        + (t3 - t2) * m1;
+    let tangent = (6. * t2 - 6. * t) * p0
+        + (3. * t2 - 4. * t + 1.) * m0
+        + (-6. * t2 + 6. * t) * p1
+        + (3. * t2 - 2. * t) * m1;
+    (position, tangent)
 }
 
 /// fBm value noise over a permutation of `buffer_length` entries with the
@@ -3680,20 +3830,15 @@ fn log_card(
     }
 }
 
-/// Controller 107's `Amplitude` is authored in centimetres, not world units.
-///
-/// This was briefly removed and had to be put back: with the value read as
-/// world units, controller-107 effects throw themselves far outside their own
-/// bounds, which is the "effects play fast and out of bounds" report. The
-/// corpus is unambiguous. 1,088 controller-107 amplitudes, 761 of them above
-/// ten and landing on round authored numbers — 200 (p50), 500 (p90), 800, 1000
-/// — on roots barely a quarter of a unit across. As world units the median is
-/// 64x its own root's `Vec:` half-extent and the worst is 3,998x. Divided by
-/// 100 the median is 0.64 of its bounds, which is what a wobble occupies.
-///
-/// Note the *fractal element's* own `Amplitude` key is a different quantity,
-/// authored 0.05..5.0, and must never take this conversion.
-const NOISE_CM_PER_UNIT: f32 = 0.01;
+// Controller 107/109/112's `Amplitude` is an authored noise depth, not a
+// distance: `A3DGFXCtrlColorNoise`/`A3DGFXCtrlScaleNoise`/`A3DGFXCtrlNoiseBase`
+// are one generator whose sample feeds the colour (107) or the keypoint scale
+// (109, via `m_fScaleNoise`); none of them displaces the position. A
+// centimetre conversion once lived here; the client has none. The corpus
+// numbers, for reference: 1,088 controller-107 amplitudes, 761 of them above
+// ten and on round authored values — 200 (p50), 500 (p90), 800, 1000 — which
+// are flicker depths in channel bytes. The *fractal element's* own `Amplitude`
+// key is a different quantity, authored 0.05..5.0.
 
 /// `_default_sects` in `A3DGFXRing.cpp`: the section count a ring falls back to
 /// when its `Sects` record is zero, which is what the editor writes for "leave
@@ -3776,11 +3921,14 @@ fn emit_sprite(
         return;
     }
     let color = context.rgba();
+    // `context.color` is the sampled keypoint colour (see `FrameContext`), not
+    // the effect's overall alpha: the controllers can override it and the
+    // element blend / cutoff still act after this point. The log says so.
     crate::diag_keyed!(
         EffectAlpha,
         at(context),
         500,
-        "{} id={} authored={:#010x} color_scale={:.4} rgba=({:.3},{:.3},{:.3},{:.3}) \
+        "{} id={} keypoint={:#010x} color_scale={:.4} rgba=({:.3},{:.3},{:.3},{:.3}) \
          cutoff={} size={:.3}x{:.3} origin={:?}",
         context.root,
         context.id,
@@ -5361,7 +5509,7 @@ fn emit_particles(
             continue;
         }
         let scale = if state.scale.is_finite() && state.scale > 0. {
-            state.scale
+            state.scale + state.scale_noise
         } else {
             1.
         };
@@ -5807,6 +5955,7 @@ fn spawn(
         acc_speed: 0.,
         speed: particle.speed,
         scale,
+        scale_noise: 0.,
         color_remainder: [0.; 4],
         seed: rng.next_u32(),
     }
@@ -6274,7 +6423,9 @@ fn integrate(
         if control.end >= 0. && age_ms > control.end {
             continue;
         }
-        let local = (age_ms - control.start) / 1000.;
+        // Same controller clock as the keypoint set: `CalcDist` runs over the
+        // absolute age, with StartTime/EndTime as the gate only.
+        let local = state.age;
         match &control.data {
             ControlData::Motion { dir, vel, acc } => {
                 let dspl = displacement(*vel, *acc, local, dt);
@@ -6290,6 +6441,24 @@ fn integrate(
                 vel,
                 acc,
             } => {
+                // `A3DGFXCtrlRotAxis` spins the direction AND orbits the
+                // position; `A3DGFXCtrlRevol` only orbits.
+                let dspl = displacement(*vel, *acc, local, dt);
+                let axis = if axis.length_squared() > 1e-12 {
+                    axis.normalize()
+                } else {
+                    Vec3::Y
+                };
+                let rotation = Quat::from_axis_angle(axis, dspl);
+                state.direction = rotation * state.direction;
+                state.position = *pos + rotation * (state.position - *pos);
+            }
+            ControlData::Revol {
+                pos,
+                axis,
+                vel,
+                acc,
+            } => {
                 let dspl = displacement(*vel, *acc, local, dt);
                 let axis = if axis.length_squared() > 1e-12 {
                     axis.normalize()
@@ -6300,21 +6469,23 @@ fn integrate(
                 state.position = *pos + rotation * (state.position - *pos);
             }
             ControlData::Attract { pos, vel, acc } => {
-                if *vel == -1. {
-                    continue;
-                }
+                // `A3DGFXCtrlCentriMove`: step toward the centre by the
+                // integrated distance and clamp at the centre on overshoot;
+                // a negative step walks away. No sentinels.
                 let dspl = displacement(*vel, *acc, local, dt);
                 let target = *pos + state.displacement;
-                if dspl == -1. {
-                    state.position = target;
-                    continue;
-                }
-                let delta = state.position - target;
+                let delta = target - state.position;
                 let length = delta.length();
                 if length > 1e-6 {
-                    let step = delta / length * dspl;
-                    state.position += step;
-                    state.displacement += step;
+                    if dspl >= length {
+                        state.position = target;
+                    } else {
+                        let step = delta / length * dspl;
+                        state.position += step;
+                        state.displacement += step;
+                    }
+                } else if dspl < 0. {
+                    state.position += Vec3::Y * dspl;
                 }
             }
             ControlData::ColorDelta { delta } => {
@@ -6331,39 +6502,68 @@ fn integrate(
                 state.scale = (state.scale + rate * dt).clamp(*min, *max);
             }
             ControlData::Fractal {
+                kind,
                 amplitude,
                 wave_length,
                 persistence,
                 octaves,
                 buffer_length,
-                ..
+                base_color,
             } => {
+                // Same sinks as the keypoint-set pass (the affector classes are
+                // the same controllers over the particle node): 109 writes
+                // `m_fScaleNoise` and the read adds it to the scale; 107 is
+                // colour noise — the authored `Amplitude` is the per-channel
+                // flicker depth in bytes over the base colour, not a distance
+                // in centimetres; 112 holds the generator and does nothing.
+                use gfx_file::NoiseKind;
+                if matches!(kind, NoiseKind::Base) {
+                    continue;
+                }
                 let sample = fbm(
                     state.seed,
-                    state.age,
+                    // Milliseconds, the keypoint-clock table convention
+                    // (`m_fTimeSpan * 1000`).
+                    state.age * 1000.,
                     *wave_length,
                     *persistence,
                     (*octaves).max(1) as usize,
                     *buffer_length,
                 );
-                // `orig` rather than `position`: the element-level path assigns
-                // its noise (`state.noise = ...`), so a particle must not
-                // accumulate it. Recomputing from the birth point each frame
-                // gives the same value a fresh particle would have, which is
-                // what makes `Amplitude` a wobble instead of a drift.
-                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
-                let offset = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
-                state.position = state.origin + state.displacement + offset;
+                let signed = sample.clamp(-1., 1.);
+                match kind {
+                    NoiseKind::Scale => {
+                        state.scale_noise = *amplitude * signed;
+                    }
+                    NoiseKind::Color => {
+                        // `BaseColor: -1` (all bits set) means "no base
+                        // authored" in this format (`ColorMin/Max: -1` carry
+                        // the same sentinel), so the flicker is over the
+                        // particle's own colour.
+                        let base = match base_color {
+                            Some(0xff_ff_ff_ff) | None => state.color,
+                            Some(color) => *color,
+                        };
+                        let mut packed = 0u32;
+                        for shift in COLOR_SHIFTS {
+                            let channel = (((base >> shift) & 0xff) as f32 + *amplitude * signed)
+                                .clamp(0., 255.) as u32;
+                            packed |= channel << shift;
+                        }
+                        state.color = packed;
+                    }
+                    NoiseKind::Base => unreachable!("handled above"),
+                }
             }
             ControlData::ColorRamp { .. } => {
                 if let Some(Some(track)) = ramps.get(slot) {
-                    if let Some(color) = track.sample(state.age - control.start / 1000.) {
+                    if let Some(color) = track.sample(state.age) {
                         state.color = color;
                     }
                 }
             }
             ControlData::ScaleRamp { first, stops } => {
-                state.scale = sample_ramp(*first, stops, state.age - control.start / 1000.);
+                state.scale = sample_ramp(*first, stops, state.age);
             }
             ControlData::Path { points, .. } => {
                 if points.len() > 1 {
@@ -7838,12 +8038,14 @@ mod tests {
         );
     }
 
-    /// Controller 107's noise is a displacement of the particle's birth point,
-    /// not a per-frame step. Adding it every frame compounded: `夜空飘尘`'s
-    /// `Amplitude: 400` walked its 0.4-unit dust out past +/-7,900 units inside
-    /// forty frames, which is the effect that covers a whole map.
+    /// Controller 107 is `A3DGFXCtrlColorNoise`: its sample flickers the
+    /// particle's colour and never its position. The affector was once read as
+    /// position noise and once compounded per frame (`夜空飘尘`'s `Amplitude:
+    /// 400` dust walked out past +/-7,900 units). The client's noise feeds the
+    /// colour (107) or the scale (109, through `m_fScaleNoise`); nothing in
+    /// these controllers displaces anything.
     #[test]
-    fn a_particle_noise_controller_does_not_accumulate() {
+    fn a_particle_colour_noise_flickers_colour_not_position() {
         let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
              TexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\n\
              ParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\n\
@@ -7857,53 +8059,63 @@ mod tests {
              Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
         let mut player = build(&(header37(1) + fractal));
         let mut worst = 0f32;
+        let mut colours = std::collections::BTreeSet::new();
         for _ in 0..60 {
             step(&mut player, 33.);
             for quad in player.quads() {
                 for point in &quad.positions {
                     worst = worst.max(point[0].abs().max(point[1].abs()).max(point[2].abs()));
                 }
+                colours.insert(quad.color.map(|channel| (channel * 255.) as u8));
             }
         }
-        // `Amplitude` 400 with the birth point held still stays within a few
-        // hundred units; the compounding bug reached thousands by frame 30.
+        // Colour noise never moves the sprite: the dust stays inside its own
+        // emission area however loud the amplitude is authored.
         assert!(
-            worst < 900.,
-            "noise accumulated to {worst} units; it must stay near the birth point"
+            worst < 2.,
+            "the 107 flicker moved the sprite {worst} units; noise must not \
+             displace the position at all"
         );
+        // ...and it does flicker: the particle colour changes over the run.
+        assert!(colours.len() > 1, "the 107 flicker never changed the colour");
     }
 
-    /// Controller 107's `Amplitude` is centimetres, and the parser keeps the
-    /// effect inside its own bounds because of it.
-    ///
-    /// The conversion was removed once, on the reasoning that a large authored
-    /// number must be a large world distance. It is not: read as world units the
-    /// sample throws the element thousands of units outside a quarter-unit root,
-    /// which is exactly the "effects play fast and run out of bounds" report.
-    /// The corpus measurement that settles it is in `NOISE_CM_PER_UNIT`; this
-    /// pins the observable consequence, so the conversion cannot be dropped
-    /// again without this failing.
+    /// Controller 107's `Amplitude` is a flicker depth over the colour
+    /// channels, not a distance in centimetres (A1). The cm conversion that
+    /// once lived here was a corpus-size argument, and the source refutes it:
+    /// `A3DGFXCtrlColorNoise` writes a colour, so an authored 400 is 400
+    /// channel bytes of noise and the flicker saturates the range — it never
+    /// moves the sprite 4 units, let alone 400.
     #[test]
-    fn a_controller_107_amplitude_stays_inside_its_own_bounds() {
+    fn a_colour_noise_amplitude_is_a_flicker_depth_not_a_distance() {
         // A particle in a one-unit area shaken by the authored 400. As world
         // units that is 400 times the volume it lives in.
         let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\nTexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\nParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\nColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\nRotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\nAreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\nStartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 400\r\nWaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\nBaseColor: -1\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
         let mut player = build(&(header37(1) + fractal));
         let mut peak = 0f32;
+        let mut low = 255u8;
+        let mut high = 0u8;
         for _ in 0..40 {
             step(&mut player, 33.);
             for quad in player.quads() {
                 for point in &quad.positions {
                     peak = peak.max(point[0].abs().max(point[2].abs()));
                 }
+                let alpha = (quad.color[3] * 255.) as u8;
+                low = low.min(alpha);
+                high = high.max(alpha);
             }
         }
-        // As centimetres the sample wanders a few units — a wobble inside the
-        // volume. Read as world units it leaves them by a factor of hundreds.
+        // The depth 400 saturates the byte range: the flicker reaches across
+        // most of it. Read as a distance it would move the sprite by units.
         assert!(
-            peak < 20.,
-            "the authored amplitude 400 moved the sprite {peak} units, so the \
-             centimetre conversion is missing and the effect is out of bounds"
+            high >= 200 && low <= 128,
+            "the flicker depth 400 spans only {low}..{high} of the alpha range"
+        );
+        assert!(
+            peak < 2.,
+            "the authored amplitude 400 moved the sprite {peak} units; a colour \
+             noise must never displace the position"
         );
     }
 
@@ -14139,5 +14351,180 @@ mod tests {
             player.quads()
         );
         assert_eq!(player.stats().warp, 1);
+    }
+
+    /// `Interpolate`/`Interp_Color` truncate toward zero per channel —
+    /// `(int)(from * (1 - portion) + to * portion)` in `A3DGFXKeyPoint.cpp` —
+    /// they do not round (C1).
+    #[test]
+    fn blending_truncates_like_the_client_interpolate() {
+        // 0x40 + (0x7f - 0x40) * 0.5 = 95.5 in every channel: the client's
+        // cast lands on 95, `.round()` would say 96.
+        assert_eq!(blend_color(0xff_40_40_40, 0xff_7f_7f_7f, 0.5), 0xff_5f_5f_5f);
+    }
+
+    /// `A3DGFXKeyPointSet::Resume` copies keypoint 0's KPOrg once and only
+    /// `Interpolate` writes KPOrg-derived values afterwards — and the client
+    /// runs `Process` instead of `Interpolate` on a step keypoint — so a step
+    /// keypoint's own values are never applied: the previous state carries
+    /// through its whole span (B1).
+    #[test]
+    fn step_keypoints_carry_the_previous_state() {
+        let one = "KEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let two = "KEYPOINTCOUNT: 2\r\nInterpolateMode: 0\r\nTimeSpan: 100\r\nPosition: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 50, 0, 0\r\nColor: -16777216\r\nScale: 2\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let player = build(&(header37(1) + &SPRITE.replace(one, two)));
+        let element = &player.root.elements[player.elements[0].index];
+        // Inside keypoint 0's own span: its authored values.
+        let (_, _, early) = sample_keypoints(element, 50.).unwrap();
+        assert_eq!(early.position, Vec3::new(1., 2., 3.));
+        // Inside keypoint 1's span: still keypoint 0's values — the step
+        // keypoint's authored position and colour are not applied at all.
+        let (_, _, late) = sample_keypoints(element, 150.).unwrap();
+        assert_eq!(late.position, Vec3::new(1., 2., 3.));
+        assert_eq!(late.color, 0xff_ff_ff_ff);
+    }
+
+    /// `Interpolate` slerps the direction only under `enumInterpAll`; the
+    /// `enumInterpNoDir` segment keeps the previous direction even though the
+    /// segment's own keypoint authors a different one (A6).
+    #[test]
+    fn interp_no_dir_keeps_the_previous_direction() {
+        let one = "KEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let three = "KEYPOINTCOUNT: 3\r\nInterpolateMode: 0\r\nTimeSpan: 100\r\nPosition: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\nInterpolateMode: 2\r\nTimeSpan: 100\r\nPosition: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0.707107, 0, 0.707107\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0.707107, 0, 0.707107\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let player = build(&(header37(1) + &SPRITE.replace(one, three)));
+        let element = &player.root.elements[player.elements[0].index];
+        // The NoDir segment interpolates the other channels but never the
+        // direction: keypoint 1 authors a 90-degree turn and none of it lands.
+        let (_, _, mid) = sample_keypoints(element, 150.).unwrap();
+        assert_eq!(mid.direction, Quat::IDENTITY);
+        let (_, _, late) = sample_keypoints(element, 250.).unwrap();
+        assert_eq!(late.direction, Quat::IDENTITY);
+    }
+
+    /// Controller windows gate on StartTime/EndTime but integrate over the
+    /// keypoint's own clock: `CalcDist(m_fVelOrg, m_fAcc, m_fTimeSpan, dt)` is
+    /// an absolute-age integral (A5). Shifting the clock by `StartTime` is
+    /// what made late windows integrate the wrong distance.
+    #[test]
+    fn a_controller_window_gates_the_clock_but_does_not_shift_it() {
+        let source = header37(1)
+            + &SPRITE.replace(
+                "CtrlMethodCount: 0\r\n",
+                "CtrlMethodCount: 1\r\nCtrlType: 100\r\nStartTime: 500.000000\r\nEndTime: -1.000000\r\nDir: 1.000000, 0.000000, 0.000000\r\nVel: 1.000000\r\nAcc: 2.000000\r\n",
+            );
+        let mut player = build(&source);
+        for _ in 0..5 {
+            step(&mut player, 100.);
+        }
+        // The window opens at 500 ms and the first integration runs over the
+        // age interval [0.5, 0.6]: v = 1 + 2*0.5 = 2, dspl = 0.21. The root
+        // scale of 2 puts the sprite centre at 2 * (1 + 0.21).
+        let centre = quad_centre(&player.quads()[0]);
+        assert!((centre.x - 2. * 1.21).abs() <= 1e-4, "{centre}");
+        // Next frame over [0.6, 0.7]: v = 2.2..2.4, dspl = 0.23, total 0.44.
+        step(&mut player, 100.);
+        let centre = quad_centre(&player.quads()[0]);
+        assert!((centre.x - 2. * 1.44).abs() <= 1e-4, "{centre}");
+    }
+
+    /// Controller 109 (`A3DGFXCtrlScaleNoise`) writes `m_fScaleNoise` and the
+    /// keypoint read adds it to the scale — the noise is a scale flicker, not
+    /// a position jitter (A1).
+    #[test]
+    fn scale_noise_flickers_the_scale_not_the_position() {
+        let source = header37(1)
+            + &SPRITE.replace(
+                "CtrlMethodCount: 0\r\n",
+                "CtrlMethodCount: 1\r\nCtrlType: 109\r\nStartTime: 0.000000\r\nEndTime: -1.000000\r\nBufLen: 256\r\nAmplitude: 0.500000\r\nWaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\n",
+            );
+        let mut player = build(&source);
+        let mut sizes = std::collections::BTreeSet::new();
+        let mut worst = 0f32;
+        for _ in 0..40 {
+            step(&mut player, 50.);
+            for quad in player.quads() {
+                let dx = quad.positions[1][0] - quad.positions[0][0];
+                let dy = quad.positions[1][1] - quad.positions[0][1];
+                let width = ((dx * dx + dy * dy).sqrt() * 100.) as i32;
+                sizes.insert(width);
+                for point in &quad.positions {
+                    worst = worst.max(point[0].abs().max(point[2].abs()));
+                }
+            }
+        }
+        assert!(sizes.len() > 1, "the 109 noise never changed the sprite size");
+        assert!(worst < 8., "the 109 noise moved the sprite {worst} units");
+    }
+
+    /// `A3DGFXCtrlRevol` (103) orbits the position and leaves the direction
+    /// alone; only `A3DGFXCtrlRotAxis` (102) spins `m_vDir` (A2). The orbit is
+    /// a rotation of the absolute position about `Pos + AxisOff`.
+    #[test]
+    fn revol_orbits_the_position_on_a_circle() {
+        let source = header37(1)
+            + &SPRITE.replace(
+                "CtrlMethodCount: 0\r\n",
+                "CtrlMethodCount: 1\r\nCtrlType: 103\r\nStartTime: 0.000000\r\nEndTime: -1.000000\r\nPos: 0, 2, 0\r\nAxis: 0, 1, 0\r\nVel: 1.570796\r\nAcc: 0.000000\r\n",
+            );
+        let mut player = build(&source);
+        let start = quad_centre(&player.quads()[0]);
+        step(&mut player, 100.);
+        let moved = quad_centre(&player.quads()[0]);
+        let orbit_centre = Vec3::new(0., 4., 0.);
+        assert!((moved - start).length() > 0.3, "revolution must move: {moved}");
+        // A revolution is a rotation: the distance to the centre line through
+        // Pos stays constant.
+        assert!(
+            ((moved - orbit_centre).length() - (start - orbit_centre).length()).abs() < 1e-3,
+            "the revolution must circle the centre, not drift: {moved}"
+        );
+    }
+
+    /// `A3DGFXCtrlCentriMove` steps the position toward `Pos + AxisOff` by
+    /// the integrated distance and clamps at the centre on overshoot (A3).
+    /// The `vel == -1` / `dspl == -1` snap sentinels were disassembly
+    /// artefacts; the source steps and clamps.
+    #[test]
+    fn centri_move_clamps_at_the_centre() {
+        let source = header37(1)
+            + &SPRITE.replace(
+                "CtrlMethodCount: 0\r\n",
+                "CtrlMethodCount: 1\r\nCtrlType: 104\r\nStartTime: 0.000000\r\nEndTime: -1.000000\r\nPos: 3, 2, 3\r\nVel: 10.000000\r\nAcc: 0.000000\r\n",
+            );
+        let mut player = build(&source);
+        step(&mut player, 100.);
+        step(&mut player, 100.);
+        step(&mut player, 100.);
+        // The sprite starts at (1, 2, 3); the two-unit gap closes in the two
+        // one-unit steps of 0.1 s each and the third frame sits at the centre.
+        let centre = quad_centre(&player.quads()[0]);
+        assert!((centre - Vec3::new(6., 4., 6.)).length() < 1e-3, "{centre}");
+        step(&mut player, 100.);
+        let centre = quad_centre(&player.quads()[0]);
+        assert!(
+            (centre - Vec3::new(6., 4., 6.)).length() < 1e-3,
+            "the centripetal clamp overshot: {centre}"
+        );
+    }
+
+    /// `A3DGFXCtrlCurveMove` drives `fRatio = time_in_keypoint /
+    /// keypoint_span` into the client's `GenPath` curve: cubic Bezier segments
+    /// with `(P[i+1] - P[i-1]) / 6` end tangents, the ratio clamped at 1 (A4).
+    #[test]
+    fn curve_move_walks_bezier_segments_and_holds_the_last_point() {
+        let line = vec![
+            Vec3::new(0., 0., 0.),
+            Vec3::new(2., 0., 0.),
+            Vec3::new(3., 0., 0.),
+        ];
+        assert_eq!(sample_curve_ratio(&line, 0.).0, line[0]);
+        assert_eq!(sample_curve_ratio(&line, 1.).0, line[2]);
+        // Beyond the ratio the last point is held — no wrap.
+        assert_eq!(sample_curve_ratio(&line, 2.).0, line[2]);
+        assert_eq!(sample_curve_ratio(&line, -1.).0, line[0]);
+        // A two-point path is a straight segment: the midpoint is the middle.
+        let pair = vec![Vec3::new(0., 0., 0.), Vec3::new(2., 0., 0.)];
+        let (point, _) = sample_curve_ratio(&pair, 0.5);
+        assert!((point - Vec3::new(1., 0., 0.)).length() < 1e-5, "{point}");
     }
 }

@@ -407,6 +407,16 @@ pub struct Control {
     pub data: ControlData,
 }
 
+/// Which noise controller a `Fractal` payload belongs to; `ID_KPCTRL_CL_NOISE`
+/// (107), `ID_KPCTRL_SCA_NOISE` (109) or `ID_KPCTRL_NOISE_BASE` (112) in
+/// `A3DGFXKeyPoint.h`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NoiseKind {
+    Color,
+    Scale,
+    Base,
+}
+
 /// The 13 controller payloads, with the client's own field names.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControlData {
@@ -414,21 +424,42 @@ pub enum ControlData {
     Motion { dir: Vec3, vel: f32, acc: f32 },
     /// 101: scalar speed change (particle speed over life).
     Speed { vel: f32, acc: f32 },
-    /// 102 and 103: rotation about `axis` through `pos`.
+    /// 102: rotation about `axis` through `pos` — spins the keypoint
+    /// direction (`A3DGFXCtrlRotAxis::Process` rotates `m_vDir`) and orbits
+    /// the position around the line.
     Orbit {
         pos: Vec3,
         axis: Vec3,
         vel: f32,
         acc: f32,
     },
-    /// 104: motion relative to `pos`; `vel == -1` disables it.
+    /// 103: revolution about `axis` through `pos`. `A3DGFXCtrlRevol::Process`
+    /// moves only the position; the direction is left alone (only 102 spins
+    /// it), so this is a separate variant.
+    Revol {
+        pos: Vec3,
+        axis: Vec3,
+        vel: f32,
+        acc: f32,
+    },
+    /// 104: `A3DGFXCtrlCentriMove::Process` steps the position toward (or,
+    /// with a negative step, away from) the centre `pos + m_vAxisOff` by the
+    /// integrated distance, clamping at the centre on overshoot. The old
+    /// `vel == -1` / `dspl == -1` sentinels came from a disassembly reading
+    /// and are not in the source.
     Attract { pos: Vec3, vel: f32, acc: f32 },
     /// 105: per-channel colour rate, four signed integers per second.
     ColorDelta { delta: [i32; 4] },
     /// 106: scale rate per second with the authored clamp.
     ScaleChange { rate: f32, min: f32, max: f32 },
-    /// 107, 109 and 112: fractal noise. 107 adds `base_color`.
+    /// 107, 109 and 112: fractal noise. The three share the payload but act
+    /// differently in `Process`: 109 (`A3DGFXCtrlScaleNoise`) writes the
+    /// `PROC_DATA::m_fScaleNoise` slot the keypoint read adds to the output
+    /// scale, 107 (`A3DGFXCtrlColorNoise`) drives the alpha of a colour whose
+    /// RGB come from `BaseColor`, and 112 (`A3DGFXCtrlNoiseBase`) is the
+    /// shared generator holder and does nothing on its own.
     Fractal {
+        kind: NoiseKind,
         buffer_length: u32,
         amplitude: f32,
         wave_length: f32,
@@ -2151,7 +2182,13 @@ fn control(reader: &mut Reader) -> Result<Control, String> {
             vel: reader.number("Vel")?,
             acc: reader.number("Acc")?,
         },
-        102 | 103 => ControlData::Orbit {
+        102 => ControlData::Orbit {
+            pos: reader.vector("Pos")?,
+            axis: reader.vector("Axis")?,
+            vel: reader.number("Vel")?,
+            acc: reader.number("Acc")?,
+        },
+        103 => ControlData::Revol {
             pos: reader.vector("Pos")?,
             axis: reader.vector("Axis")?,
             vel: reader.number("Vel")?,
@@ -2197,8 +2234,13 @@ fn control(reader: &mut Reader) -> Result<Control, String> {
                 max: parts[2],
             }
         }
-        // 107 adds a base colour to the noise payload of 109 and 112.
+        // 107, 109 and 112 share one payload; the kind picks the Process law.
         107 | 109 | 112 => ControlData::Fractal {
+            kind: match kind {
+                107 => NoiseKind::Color,
+                109 => NoiseKind::Scale,
+                _ => NoiseKind::Base,
+            },
             buffer_length: clamp_u32(reader.integer("BufLen")?),
             amplitude: reader.number("Amplitude")?,
             wave_length: reader.number("WaveLen")?,
