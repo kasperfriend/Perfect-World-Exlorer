@@ -14575,6 +14575,8 @@ mod tests {
                 "CtrlMethodCount: 1\r\nCtrlType: 103\r\nStartTime: 0.000000\r\nEndTime: -1.000000\r\nPos: 0, 2, 0\r\nAxis: 0, 1, 0\r\nVel: 1.570796\r\nAcc: 0.000000\r\n",
             );
         let mut player = build(&source);
+        // Emit the frame before reading it: `build` only parses.
+        step(&mut player, 0.);
         let start = quad_centre(&player.quads()[0]);
         step(&mut player, 100.);
         let moved = quad_centre(&player.quads()[0]);
