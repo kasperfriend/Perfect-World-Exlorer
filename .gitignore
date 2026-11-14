@@ -33,3 +33,7 @@ google_drive/
 !/sdk/amd_fidelityfx_framegeneration_dx12.dll
 !/sdk/AMD_FidelityFX-SDK-2.4.0-notices.md
 !/sdk/AMD_FidelityFX-SDK-2.4.0-LICENSE.md
+# The FidelityFX SDK API headers used by the FFI integration (MIT-style,
+# same license terms as the binaries above; kept for reference and review).
+!/sdk/include/
+!/sdk/include/**

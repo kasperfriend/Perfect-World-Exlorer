@@ -1,7 +1,7 @@
 //! Persisted viewer controls; malformed values fall back safely.
 use crate::client_weather::WeatherOverride;
 use crate::sky_transition::SkyOverride;
-use crate::upscaling::{FrameGenMethod, UpscaleMethod, UpscaleQuality};
+use crate::{FrameGenMethod, UpscaleMethod, UpscaleQuality};
 
 #[path = "post_plan.rs"]
 mod post_plan;
@@ -213,7 +213,7 @@ pub struct ViewSettings {
     /// Graphics: quality mode for the active upscaler.
     pub upscale_quality: UpscaleQuality,
     /// Graphics: frame generator, chosen independently of the upscaler.
-    /// Illegal pairings are refused at decode time (see `upscaling::pairing`).
+    /// Illegal pairings are refused at decode time (see `crate::pairing`).
     pub frame_generation: FrameGenMethod,
     /// Graphics: folder to load the vendor upscaling SDKs from. Empty means
     /// `PW_UPSCALER_SDK_DIR`, or `<exe>\sdk\` beside the viewer. The SDKs are
@@ -495,7 +495,7 @@ impl ViewSettings {
         // upscaler/quality/frame-generator triple this build cannot honour;
         // coerce it to a legal one rather than failing the whole file.
         let (upscaling, upscale_quality, frame_generation) =
-            crate::upscaling::sanitise(s.upscaling, s.upscale_quality, s.frame_generation);
+            crate::sanitise(s.upscaling, s.upscale_quality, s.frame_generation);
         s.upscaling = upscaling;
         s.upscale_quality = upscale_quality;
         s.frame_generation = frame_generation;
@@ -1066,9 +1066,9 @@ effect_shaft=up\neffect_distance=125.5\nlogging_mask=7\nlogging_dir=C:\\pwe-logs
         assert_eq!(s.logging_mask, 7);
         assert_eq!(s.logging_dir, "C:\\pwe-logs");
         // New keys take their defaults; encoding re-emits the old keys too.
-        assert_eq!(s.upscaling, crate::upscaling::UpscaleMethod::Off);
-        assert_eq!(s.upscale_quality, crate::upscaling::UpscaleQuality::Quality);
-        assert_eq!(s.frame_generation, crate::upscaling::FrameGenMethod::Off);
+        assert_eq!(s.upscaling, crate::UpscaleMethod::Off);
+        assert_eq!(s.upscale_quality, crate::UpscaleQuality::Quality);
+        assert_eq!(s.frame_generation, crate::FrameGenMethod::Off);
         assert_eq!(s.upscale_sdk_dir, "");
         let re_encoded = s.encode();
         // `bloom_tint` is the one legacy key whose value is re-encoded in a
@@ -1091,65 +1091,65 @@ effect_shaft=up\neffect_distance=125.5\nlogging_mask=7\nlogging_dir=C:\\pwe-logs
     #[test]
     fn upscale_settings_round_trip_and_coercion() {
         let defaults = ViewSettings::default();
-        assert_eq!(defaults.upscaling, crate::upscaling::UpscaleMethod::Off);
+        assert_eq!(defaults.upscaling, crate::UpscaleMethod::Off);
         assert_eq!(
             defaults.upscale_quality,
-            crate::upscaling::UpscaleQuality::Quality
+            crate::UpscaleQuality::Quality
         );
         assert_eq!(
             defaults.frame_generation,
-            crate::upscaling::FrameGenMethod::Off
+            crate::FrameGenMethod::Off
         );
         assert_eq!(defaults.upscale_sdk_dir, "");
         let s = ViewSettings::decode(
             "upscaling=dlss\nupscale_quality=performance\nframe_generation=dlss\n\
              upscale_sdk_dir=D:\\vendor-sdks\n",
         );
-        assert_eq!(s.upscaling, crate::upscaling::UpscaleMethod::Dlss);
+        assert_eq!(s.upscaling, crate::UpscaleMethod::Dlss);
         assert_eq!(
             s.upscale_quality,
-            crate::upscaling::UpscaleQuality::Performance
+            crate::UpscaleQuality::Performance
         );
-        assert_eq!(s.frame_generation, crate::upscaling::FrameGenMethod::Dlss);
+        assert_eq!(s.frame_generation, crate::FrameGenMethod::Dlss);
         assert_eq!(s.upscale_sdk_dir, "D:\\vendor-sdks");
         assert_eq!(ViewSettings::decode(&s.encode()), s);
         // Unknown tokens fall back to Off/Quality.
         let unknown = ViewSettings::decode(
             "upscaling=vendorx\nupscale_quality=gaga\nframe_generation=vendorx\n",
         );
-        assert_eq!(unknown.upscaling, crate::upscaling::UpscaleMethod::Off);
+        assert_eq!(unknown.upscaling, crate::UpscaleMethod::Off);
         assert_eq!(
             unknown.upscale_quality,
-            crate::upscaling::UpscaleQuality::Quality
+            crate::UpscaleQuality::Quality
         );
         assert_eq!(
             unknown.frame_generation,
-            crate::upscaling::FrameGenMethod::Off
+            crate::FrameGenMethod::Off
         );
         // XeSS has no Ultra Performance mode: coerced to Quality.
         let xess = ViewSettings::decode("upscaling=xess\nupscale_quality=ultraperformance\n");
         assert_eq!(
             xess.upscale_quality,
-            crate::upscaling::UpscaleQuality::Quality
+            crate::UpscaleQuality::Quality
         );
         // Cross-vendor XeSS frame generation is not exposed: coerced to Off.
         let cross = ViewSettings::decode("upscaling=fsr\nframe_generation=xess\n");
         assert_eq!(
             cross.frame_generation,
-            crate::upscaling::FrameGenMethod::Off
+            crate::FrameGenMethod::Off
         );
         // DLSS + DLSS FG is legal and survives.
         let legal = ViewSettings::decode("upscaling=dlss\nframe_generation=dlss\n");
         assert_eq!(
             legal.frame_generation,
-            crate::upscaling::FrameGenMethod::Dlss
+            crate::FrameGenMethod::Dlss
         );
         // Mixed case tokens parse.
         let mixed = ViewSettings::decode("upscaling=FSR\nframe_generation=FSR\n");
-        assert_eq!(mixed.upscaling, crate::upscaling::UpscaleMethod::Fsr);
+        assert_eq!(mixed.upscaling, crate::UpscaleMethod::Fsr);
         assert_eq!(
             mixed.frame_generation,
-            crate::upscaling::FrameGenMethod::Fsr
+            crate::FrameGenMethod::Fsr
         );
         // Case-insensitive parse keeps the rest of the file intact.
         assert_eq!(ViewSettings::decode(&mixed.encode()), mixed);

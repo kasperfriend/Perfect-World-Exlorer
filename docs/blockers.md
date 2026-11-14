@@ -75,18 +75,25 @@ done.
     `<exe>\sdk\`) for the documented DLL names and reports what it finds;
     every provider stays disabled with a visible reason until a real SDK is
     present.
-  - The actual vendor FFI calls (`slDLSSInit`, `ffxCreateContext`,
-    `xessContextCreate`, …) are **not** implemented: even with the AMD DLLs
-    now present, this wgpu 0.19.x backend cannot reach the native
-    `ID3D12Device*`/`ID3D12Resource*` handles they require (no `as_hal`, no
-    `wgpu::hal` re-export; `HalApi` is internal to `wgpu-core`), so the FSR C
-    API cannot be dispatched from this renderer at all without a backend
-    change (native DX12, or a wgpu upgrade). NVIDIA/Intel SDKs still could
-    not be obtained. Writing untested FFI would be fabrication, not
-    integration. The Graphics tab says so verbatim: "Vendor SDK integration
-    is not included in this build; an active provider renders through the
-    fallback path at its recommended internal resolution (see README →
-    Graphics and docs/blockers.md)." Nothing temporal is faked.
+  - AMD FSR **is** now implemented (`src/fsr.rs`, Windows + DX12 only) and
+    wired behind the same `Upscaling = FSR` setting. The AMD loader DLL is
+    loaded with LoadLibraryW/GetProcAddress; the FFX 2.4.0 upscaler provider
+    is enumerated with `ffxQueryDescGetVersions` and pinned with
+    `ffxOverrideVersion`; the world projection is jittered with the FFX jitter
+    sequence; motion vectors are reconstructed from reversed-Z depth by a
+    fullscreen pass (camera motion only — no per-actor velocity); the FFX
+    dispatch runs on its own native D3D12 command list created by the same
+    device, chained to wgpu through `wgpu::Device::as_hal`
+    (wgpu-hal 0.19 is now a direct dependency and exposes the raw handles);
+    wgpu and FFX synchronise by queue order on the single direct queue wgpu
+    creates, and every native barrier restores the state wgpu's tracker
+    expects. If the loader or any call fails, the viewer logs and falls back
+    to the bilinear path for the rest of the session. This FFI was written
+    without a GPU to test on: the jitter sign, the motion-vector direction
+    and basic operation are all runtime-unverified. DLSS and XeSS are
+    **not** implemented; an active DLSS/XeSS provider renders through the
+    bilinear path (no temporal accumulation is faked for those). NVIDIA/Intel
+    SDKs still could not be obtained. The Graphics tab states this verbatim.
   - Licenses/attribution are recorded in `THIRD_PARTY_NOTICES.md` from the
     vendor terms as published (with the requirement to re-check the license
     shipped inside the SDK you download).
@@ -123,12 +130,17 @@ and frame generation").
   and any mistake is a full render breakage, not a partial failure.
 - **Tried:** scoped the change to: a unit-tested jitter sequence + matrix
   helper (`src/upscaling.rs::jitter_*`) and a documented target/format
-  requirement in `docs/dx12-port-notes.md` §7. The projection and shaders are
-  **not** modified.
-- **Workaround:** jitter/MV exist as tested pure functions consumed by the
-  diagnostics; production projection unchanged. Upscalers are disabled in UI
-  until an SDK is present anyway (B-3).
-- **Status:** open.
+  requirement in `docs/dx12-port-notes.md` §7. The generic projection and
+  shaders are **not** modified for other paths. The FSR path (`src/fsr.rs`,
+  Windows + DX12) jitters only the world projection (UI/minimap/compositor
+  stay unjittered), reconstructs camera-only motion vectors from depth, and
+  feeds the SDK a raw R32_FLOAT copy of the reversed-Z depth buffer.
+- **Workaround:** FSR 2.4.0 consumes camera-motion MVs; actors that move in
+  world space are reprojected as if static (ghosting on animated geometry is
+  expected). There is still no per-object or skeletal velocity pass. DLSS/XeSS
+  paths render bilinearly as before.
+- **Status:** open (per-actor velocity pass + a verified FSR run on a real
+  Windows GPU).
 
 ## B-6 — Open PR overlap (Phase 0.3)
 

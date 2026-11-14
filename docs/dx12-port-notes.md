@@ -195,10 +195,12 @@ defaults (see the migration test in `view_settings.rs`).
    for the documented DLL names without loading any of them. NVIDIA/Intel
    SDK binaries are not shipped or committed; the AMD FSR SDK 2.4.0 signed
    DX12 binaries **are** vendored under `sdk/` at the user's request
-   (MIT-style license; notices reproduced; packaging stages them). Even with
-   the AMD DLLs present, the FSR C API cannot be dispatched from this wgpu
-   0.19.x renderer — see `docs/blockers.md` B-3 — so selecting a provider
-   still renders through the fallback path. When a provider is selected but its SDK cannot be
+   (MIT-style license; notices reproduced; packaging stages them). AMD FSR
+   can and does dispatch from this wgpu 0.19.x renderer: the FFX upscaler runs
+   on its own native D3D12 command list chained to the wgpu device/queue
+   (`wgpu::Device::as_hal`; see `src/fsr.rs` and `docs/blockers.md` B-3/B-5) —
+   runtime unverified. DLSS/XeSS cannot dispatch and still render through the
+   fallback path. When a provider is selected but its SDK cannot be
    used, the world renders through the existing fallback path at the
    provider's recommended internal resolution — the UI says so, and no
    temporal accumulation is faked (see `docs/blockers.md` B-3).
