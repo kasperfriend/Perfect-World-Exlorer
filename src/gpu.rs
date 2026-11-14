@@ -260,6 +260,7 @@ enum MenuPage {
     Settings,
     Teleports,
     WorldMap,
+    WorldLoading,
 }
 impl MenuPage {
     fn escape(self) -> Self {
@@ -268,6 +269,7 @@ impl MenuPage {
             Self::Main => Self::Closed,
             Self::Modules | Self::Settings | Self::Teleports => Self::Main,
             Self::WorldMap => Self::Closed,
+            Self::WorldLoading => Self::WorldLoading,
         }
     }
     fn is_open(self) -> bool {
@@ -4001,7 +4003,7 @@ pub fn run(
     let mut world_audio = crate::world_audio::WorldAudio::new(&t.element, &t.scene);
     #[cfg(windows)]
     drop(loading);
-    window.set_visible(true);
+    window.set_visible(!crate::world_handoff::is_handoff_child());
     let water_areas = t.water.clone();
     let environments = t.environments.clone();
     let mut fog_transition =
@@ -4223,6 +4225,10 @@ pub fn run(
     }
     let mut world_choice = current_map.id.clone();
     let mut world_change_error = String::new();
+    let mut world_loading_status = String::from("Starting the replacement world...");
+    let mut handoff_ready_signaled = false;
+    let mut world_handoff_rx: Option<std::sync::mpsc::Receiver<crate::world_handoff::Message>> =
+        None;
     let mut last_zone: Option<usize> = None;
     let mut zone_initialized = false;
     let mut zone_check = Instant::now() - std::time::Duration::from_secs(1);
@@ -4694,15 +4700,23 @@ pub fn run(
                                                     }
                                                     settings.selected_world = map_id.clone();
                                                     if let Err(e) = settings.save() { eprintln!("Settings save before world change: {e}"); }
-                                                    let result = std::process::Command::new(executable)
+                                                    let files = crate::world_handoff::Files::new();
+                                                    let mut command = std::process::Command::new(executable);
+                                                    command
                                                         .arg(&client_root)
                                                         .arg("--world")
-                                                        .arg(&settings.selected_world)
-                                                        .spawn();
-                                                    match result {
+                                                        .arg(&settings.selected_world);
+                                                    files.configure(&mut command);
+                                                    match command.spawn() {
                                                         Ok(child) => {
-                                                            eprintln!("Opening world {display} in a new explorer process ({})", child.id());
-                                                            target.exit();
+                                                            eprintln!("Loading world {display} in replacement process {}", child.id());
+                                                            let (tx, rx) = std::sync::mpsc::channel();
+                                                            files.watch(child, tx);
+                                                            world_handoff_rx = Some(rx);
+                                                            world_loading_status = format!("Loading {display}...");
+                                                            world_change_error.clear();
+                                                            menu_page = MenuPage::WorldLoading;
+                                                            keys.clear();
                                                             return;
                                                         }
                                                         Err(e) => world_change_error = format!("Could not open {display}: {e}"),
@@ -4783,6 +4797,35 @@ pub fn run(
                                         );
                                     }
                                     if settings.show_zone_entry {if let Some((name,started))=&zone_banner {let elapsed=started.elapsed().as_secs_f32();if elapsed<4. {let alpha=(elapsed.min(4.-elapsed)*2.).clamp(0.,1.);egui::Area::new(egui::Id::new("zone-entry")).anchor(egui::Align2::CENTER_TOP,egui::vec2(0.,65.)).interactable(false).show(ctx,|ui|{ui.label(egui::RichText::new(format!("Entering {name}")).size(24.).color(egui::Color32::from_white_alpha((alpha*255.) as u8)));});}}}
+                                    if menu_page == MenuPage::WorldLoading {
+                                        let screen = ctx.screen_rect();
+                                        ctx.layer_painter(egui::LayerId::new(
+                                            egui::Order::Foreground,
+                                            egui::Id::new("world-loading-overlay"),
+                                        ))
+                                        .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(220));
+                                        egui::Area::new(egui::Id::new("world-loading-panel"))
+                                            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                                            .interactable(false)
+                                            .show(ctx, |ui| {
+                                                egui::Frame::none()
+                                                    .fill(egui::Color32::from_rgb(28, 34, 39))
+                                                    .rounding(12.0)
+                                                    .inner_margin(egui::Margin::same(24.0))
+                                                    .show(ui, |ui| {
+                                                        ui.set_min_width(390.0);
+                                                        ui.vertical_centered(|ui| {
+                                                            ui.heading("Loading world");
+                                                            ui.add_space(10.0);
+                                                            ui.label(&world_loading_status);
+                                                            ui.add_space(14.0);
+                                                            ui.add(egui::Spinner::new().size(30.0));
+                                                            ui.add_space(8.0);
+                                                            ui.label("This window will switch over when the new map is ready.");
+                                                        });
+                                                    });
+                                            });
+                                    }
                                 });
                                 egui_state.handle_platform_output(&window,output.platform_output);
                                 let jobs=egui_ctx.tessellate(output.shapes,output.pixels_per_point);
@@ -4815,7 +4858,17 @@ pub fn run(
                                     frame_gamma_setting,
                                 );
                             }
+                            if !handoff_ready_signaled {
+                                // Keep the replacement's native window hidden
+                                // until its first complete frame is ready; the
+                                // old window remains visible with the loading UI.
+                                window.set_visible(true);
+                            }
                             frame.present();
+                            if !handoff_ready_signaled {
+                                crate::world_handoff::signal_ready();
+                                handoff_ready_signaled = true;
+                            }
                             if software_adapter { renderer.device.poll(wgpu::Maintain::Wait); }
                         }
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -4838,7 +4891,38 @@ pub fn run(
                 camera.yaw -= delta.0 as f32 * settings.sensitivity;
                 camera.pitch = (camera.pitch - delta.1 as f32 * settings.sensitivity).clamp(-1.5, 1.5);
             }
-            Event::AboutToWait => window.request_redraw(),
+            Event::AboutToWait => {
+                let mut completion = None;
+                if let Some(receiver) = &world_handoff_rx {
+                    for message in receiver.try_iter() {
+                        match message {
+                            crate::world_handoff::Message::Progress(status) => {
+                                world_loading_status = status;
+                            }
+                            crate::world_handoff::Message::Ready => completion = Some(Ok(())),
+                            crate::world_handoff::Message::Failed(error) => {
+                                completion = Some(Err(error));
+                            }
+                        }
+                    }
+                }
+                if let Some(result) = completion {
+                    world_handoff_rx = None;
+                    match result {
+                        Ok(()) => target.exit(),
+                        Err(error) => {
+                            world_change_error = error;
+                            settings.selected_world = current_map.id.clone();
+                            world_choice = current_map.id.clone();
+                            if let Err(save_error) = settings.save() {
+                                eprintln!("Could not restore selected world after failed handoff: {save_error}");
+                            }
+                            menu_page = MenuPage::Teleports;
+                        }
+                    }
+                }
+                window.request_redraw();
+            },
             _ => {}
         })
         .map_err(|e| e.to_string())

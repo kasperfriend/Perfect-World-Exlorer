@@ -206,6 +206,7 @@ mod weather_gpu;
 #[cfg(windows)]
 mod windows_setup;
 mod world_catalog;
+mod world_handoff;
 mod world_models;
 mod world_models_gpu;
 mod world_objects;
@@ -956,7 +957,11 @@ fn main() {
     ));
     objects::set_unbounded_textures(saved.all_to_vram);
     #[cfg(windows)]
-    let loading = windows_setup::LoadingWindow::start();
+    let loading = if world_handoff::is_handoff_child() {
+        None
+    } else {
+        Some(windows_setup::LoadingWindow::start())
+    };
     let mut preferred_world = world_override
         .as_deref()
         .unwrap_or(saved.selected_world.as_str())
@@ -975,7 +980,12 @@ fn main() {
         let notice = fallback_notice.as_deref().unwrap_or_default();
         eprintln!("{notice}");
         #[cfg(windows)]
-        windows_setup::show_error(notice);
+        if !world_handoff::is_handoff_child() {
+            windows_setup::show_error(notice);
+        }
+        if world_handoff::is_handoff_child() {
+            world_handoff::publish_progress("Selected map failed; preparing the main world...");
+        }
     }
     let client_root = path.clone();
     let result = recoverable_map_operation(move || {

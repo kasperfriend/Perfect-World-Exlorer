@@ -346,6 +346,7 @@ static LOADING_SENDER: std::sync::OnceLock<
     std::sync::Mutex<Option<std::sync::mpsc::Sender<String>>>,
 > = std::sync::OnceLock::new();
 pub fn loading_progress(message: String) {
+    crate::world_handoff::publish_progress(&message);
     if let Some(lock) = LOADING_SENDER.get() {
         if let Ok(guard) = lock.lock() {
             if let Some(tx) = guard.as_ref() {
