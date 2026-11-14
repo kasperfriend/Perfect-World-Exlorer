@@ -833,7 +833,7 @@ pub fn restore(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("{}: {e}", index.display())),
     };
-    let Some((records, pages_name, pages_digest)) = parse_manifest(&bytes, width, height, side)
+    let Some((records, pages_name, _pages_digest)) = parse_manifest(&bytes, width, height, side)
     else {
         eprintln!(
             "Terrain cache index {} does not match this world; rebuilding from the client",
@@ -846,22 +846,13 @@ pub fn restore(
         Ok(file) => file,
         Err(_) => return Ok(None),
     };
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 65536];
-    loop {
-        match file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => hasher.update(&buf[..n]),
-            Err(_) => return Ok(None),
-        }
-    }
-    if hasher.finalize().as_slice() != pages_digest.as_slice() {
-        eprintln!(
-            "Terrain cache {} failed its content check; rebuilding from the client",
-            pages_path.display()
-        );
-        return Ok(None);
-    }
+    // Do not scan the entire pages file on every warm start. Every page carries
+    // its own SHA-256 in the authenticated index and Reader::page verifies that
+    // digest after reading/decompressing the page, before it can enter the mesh
+    // or hot cache. Thus only pages actually needed for this initial view incur
+    // I/O and validation; untouched pages are checked when first requested.
+    // The outer manifest digest is still checked by parse_manifest, while file
+    // extent checks below reject truncation before the store is published.
     let file_len = file.metadata().map_err(|e| e.to_string())?.len();
     if records.iter().any(|record| {
         record
@@ -1201,7 +1192,9 @@ mod tests {
             .is_none());
         fs::write(&index, &original).unwrap();
 
-        // A good index over a damaged pages object fails the stream hash.
+        // Page payloads are verified lazily: a damaged, not-yet-read page does
+        // not force an up-front full-file scan, but must fail before it can be
+        // returned as geometry.
         let pages = fs::read_dir(&dir.0)
             .unwrap()
             .filter_map(|entry| {
@@ -1214,15 +1207,17 @@ mod tests {
         let last = bytes.len() - 1;
         bytes[last] ^= 0xff;
         fs::write(&pages, &bytes).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+        let (heights, _) = restore(&dir.0, "source-damaged", 32, 24, 4, 224)
             .unwrap()
-            .is_none());
-        // And the intact object still restores once it is written back.
+            .expect("a valid manifest and in-bounds pages file restore without a full scan");
+        assert!(heights.reader().page(23 * 32 + 31).is_err());
+        // And the intact object restores and reads normally once repaired.
         bytes[last] ^= 0xff;
         fs::write(&pages, &bytes).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+        let (heights, _) = restore(&dir.0, "source-damaged", 32, 24, 4, 224)
             .unwrap()
-            .is_some());
+            .expect("intact pages file restores");
+        assert_eq!(heights.at(23 * 32 + 31), height(31, 23));
     }
 
     #[test]
