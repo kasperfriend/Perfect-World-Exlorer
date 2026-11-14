@@ -1094,6 +1094,38 @@ mod tests {
         assert_eq!(paths().len(), 2);
     }
     #[test]
+    fn worker_prepared_blocks_match_serial_builder_output() {
+        let serial_dir = Temp::new();
+        let packed_dir = Temp::new();
+        let mut serial = Builder::new(&serial_dir.0, 8, 8, 4).unwrap();
+        let mut packed = Builder::new(&packed_dir.0, 8, 8, 4).unwrap();
+        for by in 0..2 {
+            for bx in 0..2 {
+                let mut heights = Vec::new();
+                let mut normals = Vec::new();
+                for y in 0..4 {
+                    for x in 0..4 {
+                        let world_x = bx * 4 + x;
+                        let world_y = by * 4 + y;
+                        heights.push(height(world_x, world_y));
+                        normals.push(normal(world_x, world_y));
+                    }
+                }
+                serial.block(bx, by, &heights, &normals).unwrap();
+                packed
+                    .block_packed(bx, by, prepare_block(&heights, &normals, 4).unwrap())
+                    .unwrap();
+            }
+        }
+        let (serial_heights, serial_normals) = serial.finish(1024).unwrap();
+        let (packed_heights, packed_normals) = packed.finish(1024).unwrap();
+        for i in 0..64 {
+            assert_eq!(serial_heights.at(i).to_bits(), packed_heights.at(i).to_bits());
+            assert_eq!(serial_normals.at(i), packed_normals.at(i));
+        }
+    }
+
+    #[test]
     fn damaged_page_never_silently_becomes_geometry() {
         let dir = Temp::new();
         let (h, _) = fixture(&dir.0, 224, false);
