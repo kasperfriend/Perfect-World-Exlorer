@@ -985,7 +985,10 @@ impl FsrUpscaler {
         if rc != FFX_API_RETURN_OK || context.is_null() {
             return Err(format!("ffxCreateContext failed (0x{rc:x}); is amd_fidelityfx_upscaler_dx12.dll next to the loader?"));
         }
-        eprintln!("[FSR] upscaler context 0x{:x} created ({provider_note})", context as usize);
+        eprintln!(
+            "[FSR] upscaler context 0x{:x} created ({provider_note})",
+            context as usize
+        );
 
         let mut phase_count: i32 = 0;
         let mut phase_query = FfxQueryDescUpscaleGetJitterPhaseCount {
